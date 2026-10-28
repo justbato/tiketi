@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta name="description" content="TiKeTi - Automated event ticket sales for Nigerian universities. Sell through models, verify at the gate." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Unlock&family=Slackey&family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>TiKeTi - Best Platform to Sell Event Tickets</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; }
+      body {
+        font-family: 'Archivo', sans-serif;
+        background: #F0F2F5;
+        color: #0F172A;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      body.dark-mode { background: #12151B; color: #FFFFFF; }
+      body.light-mode { background: #F0F2F5; color: #0F172A; }
+      #root { width: 100%; min-height: 100vh; min-height: 100dvh; }
+      @media screen and (max-width: 768px) {
+        input, select, textarea { font-size: 16px !important; }
+      }
+    </style>
+    <script>
+      // Apply saved theme — default is always LIGHT
+      (function() {
+        var saved = localStorage.getItem('theme');
+        if (saved === 'dark') {
+          document.body.classList.add('dark-mode');
+        } else {
+          document.body.classList.remove('dark-mode');
+          document.body.classList.add('light-mode');
+          localStorage.setItem('theme', 'light');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
