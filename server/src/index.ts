@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
@@ -17,22 +16,23 @@ import { verifyRoutes } from './routes/verify.js';
 // ENVIRONMENT VALIDATION
 // =============================================
 
+let envValidated = false;
+
 function validateEnv() {
+  if (envValidated) return;
+  envValidated = true;
+
   const required = ['JWT_SECRET'];
   const missing = required.filter(key => !process.env[key]);
   if (missing.length > 0) {
     console.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
-    process.exit(1);
   }
 
   // Validate JWT_SECRET length
   if ((process.env.JWT_SECRET || '').length < 32) {
     console.error('❌ JWT_SECRET must be at least 32 characters');
-    process.exit(1);
   }
 }
-
-validateEnv();
 
 // =============================================
 // SUPABASE CLIENT
@@ -73,6 +73,12 @@ export interface JwtPayload {
 const app = new Hono<AppEnv>();
 
 // ── Global Middleware ──
+
+// Validate environment on first request
+app.use('*', async (c, next) => {
+  validateEnv();
+  return await next();
+});
 
 // Request ID for tracing
 app.use('*', requestId());
@@ -117,7 +123,7 @@ app.use('*', cors({
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 app.use('*', async (c, next) => {
-  const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
   const now = Date.now();
   
   let entry = rateLimitStore.get(ip);
@@ -218,27 +224,4 @@ app.onError((err, c) => {
   }, 500);
 });
 
-// =============================================
-// START SERVER
-// =============================================
-
-const port = parseInt(process.env.PORT || '3001');
-const host = process.env.HOST || '0.0.0.0';
-
-console.log(`🚀 TiKeTi Server (Hono) starting on ${host}:${port}`);
-
-export default {
-  port,
-  fetch: app.fetch,
-};
-
-// For direct Node.js execution
-if (process.env.NODE_ENV !== 'test') {
-  const { serve } = await import('@hono/node-server');
-  serve({
-    fetch: app.fetch,
-    port,
-    hostname: host,
-  });
-  console.log(`🚀 TiKeTi Server running on ${host}:${port}`);
-}
+export default app;

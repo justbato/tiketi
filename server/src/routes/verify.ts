@@ -58,7 +58,7 @@ export const verifyRoutes = new Hono<AppEnv>();
 // Verify ticket
 verifyRoutes.post('/', async (c) => {
   // Rate limit check
-  const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
   if (!checkVerifyRateLimit(ip)) {
     return c.json({ error: 'Too many verification attempts' }, 429);
   }

@@ -7,7 +7,8 @@ import axios from 'axios';
 const MONNIFY_BASE_URL = 'https://api.monnify.com/api/v1';
 const MONNIFY_SANDBOX_URL = 'https://sandbox.monnify.com/api/v1';
 
-const baseUrl = process.env.NODE_ENV === 'production' ? MONNIFY_BASE_URL : MONNIFY_SANDBOX_URL;
+const monnifyEnv = process.env.MONNIFY_ENV ?? process.env.NODE_ENV;
+const baseUrl = monnifyEnv === 'production' ? MONNIFY_BASE_URL : MONNIFY_SANDBOX_URL;
 
 interface MonnifyAuth {
   accessToken: string;

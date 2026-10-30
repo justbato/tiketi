@@ -4,7 +4,7 @@ import {
   type Event, type Model, type GateStaff, type Order, type Ticket, type TicketType
 } from './data';
 
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api';
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('token');

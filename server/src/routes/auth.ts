@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import type { AppEnv, JwtPayload } from '../index.js';
 import { signToken } from '../utils/jwt.js';
@@ -117,7 +117,7 @@ authRoutes.post('/login', loginRateLimit, async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
-  const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
 
   if (body.role === 'planner') {
     const { data: planners, error } = await supabase
@@ -315,7 +315,7 @@ authRoutes.post('/admin/login', loginRateLimit, async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
-  const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
 
   const { data: admin, error } = await supabase
     .from('admins')
