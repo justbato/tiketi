@@ -1004,28 +1004,53 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  padding: 6px 9px;
+  /* flex:1 gives every item equal width; min-width:0 prevents overflow */
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px clamp(3px, 2vw, 9px);
   border-radius: 9999px;
   text-decoration: none;
-  font-size: 10px;
+  /* font scales with vw so labels stay readable on any phone */
+  font-size: clamp(9px, 2.4vw, 11px);
   font-weight: 700;
   color: var(--text-secondary);
   transition: all 0.18s ease;
-  min-width: 46px;
+  white-space: nowrap;
   border: none;
   background: transparent;
   cursor: pointer;
 }
 
+/* Mobile: stretch the nav bar edge-to-edge for equal-width columns */
+@media (max-width: 639px) {
+  .floating-footer-nav {
+    width: calc(100vw - 20px);
+    left: 10px;
+    transform: none;
+    justify-content: space-between;
+    padding: 5px 6px;
+    gap: 2px;
+    border-radius: 24px;
+  }
+  .floating-footer-nav.nav-hidden {
+    transform: translateY(160%) scale(0.92);
+  }
+}
+
+/* Tablet / desktop: compact centred pill with horizontal labels */
 @media (min-width: 640px) {
   .floating-footer-nav {
     gap: 6px;
     padding: 6px 14px;
     bottom: 20px;
     max-width: fit-content;
+    width: auto;
+    left: 50%;
+    transform: translateX(-50%);
   }
   .floating-footer-nav a,
   .floating-footer-nav .nav-link-btn {
+    flex: unset;
     flex-direction: row;
     gap: 6px;
     padding: 7px 14px;
