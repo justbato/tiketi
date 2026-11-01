@@ -41,18 +41,24 @@ staffRoutes.post('/', async (c) => {
 
   const user = c.get('user') as JwtPayload;
 
-  if (user.role !== 'owner' && user.role !== 'planner') {
-    return c.json({ error: 'Only event planners can add gate staff' }, 403);
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer') {
+    return c.json({ error: 'Only event organizers can add gate staff' }, 403);
   }
 
   // Verify event ownership
   const { data: event } = await supabase
     .from('events')
-    .select('id, planner_id')
+    .select('id, organizer_id, planner_id, owner_id')
     .eq('id', body.event_id)
     .single();
 
-  if (!event || (event.planner_id && event.planner_id !== user.id && (event as any).owner_id !== user.id)) {
+  const isOwner = event && (
+    event.organizer_id === user.id ||
+    event.planner_id === user.id ||
+    (event as any).owner_id === user.id
+  );
+
+  if (!event || !isOwner) {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -107,12 +113,12 @@ staffRoutes.post('/', async (c) => {
   }, 201);
 });
 
-// List staff for planner
+// List staff for organizer
 staffRoutes.get('/', async (c) => {
   const user = c.get('user') as JwtPayload;
   const event_id = c.req.query('event_id');
 
-  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'admin') {
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -127,11 +133,11 @@ staffRoutes.get('/', async (c) => {
     return c.json({ staff: staff || [] });
   }
 
-  // Get all events owned by planner
+  // Get all events owned by organizer
   const { data: events } = await supabase
     .from('events')
     .select('id')
-    .or(`planner_id.eq.${user.id},owner_id.eq.${user.id}`);
+    .or(`organizer_id.eq.${user.id},planner_id.eq.${user.id},owner_id.eq.${user.id}`);
 
   const eventIds = events?.map(e => e.id) || [];
   if (eventIds.length === 0) {
@@ -164,18 +170,29 @@ staffRoutes.put('/:id', async (c) => {
   const user = c.get('user') as JwtPayload;
   const { id } = c.req.param();
 
-  if (user.role !== 'owner' && user.role !== 'planner') {
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
     return c.json({ error: 'Access denied' }, 403);
   }
 
   const { data: staff } = await supabase
     .from('gate_staff')
-    .select('id, event:events(planner_id)')
+    .select('id, event:events(organizer_id, planner_id, owner_id)')
     .eq('id', id)
     .single();
 
   if (!staff) {
     return c.json({ error: 'Staff member not found' }, 404);
+  }
+
+  const ev = (staff as any).event;
+  const canManage = ev && (
+    ev.organizer_id === user.id ||
+    ev.planner_id === user.id ||
+    ev.owner_id === user.id
+  );
+
+  if (!canManage && user.role !== 'admin') {
+    return c.json({ error: 'Access denied' }, 403);
   }
 
   const { data: updated, error } = await supabase
@@ -206,7 +223,7 @@ staffRoutes.put('/:id/revoke', async (c) => {
   const user = c.get('user') as JwtPayload;
   const { id } = c.req.param();
 
-  if (user.role !== 'owner' && user.role !== 'planner') {
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
     return c.json({ error: 'Access denied' }, 403);
   }
 

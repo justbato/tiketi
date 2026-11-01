@@ -4,7 +4,7 @@ import { Ticket as TIcon, ChevronDown, Lock, Shield, Eye, EyeOff, CalendarDays, 
 import { Button, Input, showToast } from './ui';
 import { api } from '../lib/api';
 
-type Role = 'planner' | 'model' | 'gate';
+type Role = 'organizer' | 'model' | 'gate';
 
 interface RoleOption {
   value: Role;
@@ -16,9 +16,9 @@ interface RoleOption {
 
 const ROLES: RoleOption[] = [
   {
-    value: 'planner',
-    label: 'Event Planner',
-    description: 'Manage events, models & gate staff',
+    value: 'organizer',
+    label: 'Event Organizer',
+    description: 'Manage events, ticket sales & ambassadors',
     icon: CalendarDays,
     color: '#2563EB',
   },
@@ -40,7 +40,7 @@ const ROLES: RoleOption[] = [
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [selectedRole, setSelectedRole] = useState<Role>('planner');
+  const [selectedRole, setSelectedRole] = useState<Role>('organizer');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,9 +54,9 @@ export function LoginPage() {
 
   const currentRole = ROLES.find(r => r.value === selectedRole)!;
 
-  // Watch email and look up all associated event accounts for planner
+  // Watch email and look up all associated event accounts for organizer
   useEffect(() => {
-    if (selectedRole !== 'planner') {
+    if (selectedRole !== 'organizer') {
       setDetectedAccounts([]);
       setSelectedAccountId('');
       return;
@@ -108,7 +108,7 @@ export function LoginPage() {
       showToast(`Welcome back, ${result.user?.name || 'User'}!`, 'success');
 
       // Route by role
-      if (selectedRole === 'planner') navigate('/owner');
+      if (selectedRole === 'organizer') navigate('/owner');
       else if (selectedRole === 'model') navigate('/model');
       else if (selectedRole === 'gate') navigate('/verify');
     } catch (err: any) {
@@ -125,7 +125,7 @@ export function LoginPage() {
     }
     setLoading(true);
     try {
-      const result = await api.auth.login(email, password, 'planner', account.id);
+      const result = await api.auth.login(email, password, 'organizer', account.id);
       showToast(`Welcome to ${account.event_name || 'your dashboard'}!`, 'success');
       navigate('/owner');
     } catch (err: any) {
@@ -193,7 +193,7 @@ export function LoginPage() {
                           {acc.event_name || acc.name}
                         </p>
                         <p className="text-[11px] text-text-secondary mt-0.5 truncate">
-                          Planner: {acc.name}
+                          Event: {acc.event_name || 'Dashboard'}
                         </p>
                       </div>
                       <span
@@ -328,7 +328,7 @@ export function LoginPage() {
             </div>
 
             {/* If email has multiple accounts associated, show dropdown selector */}
-            {selectedRole === 'planner' && detectedAccounts.length > 1 && (
+            {selectedRole === 'organizer' && detectedAccounts.length > 1 && (
               <div className="space-y-1.5 p-3 rounded-xl neu-card-inset border border-accent/40 animate-fade-up">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-accent flex items-center gap-1.5">
@@ -388,8 +388,8 @@ export function LoginPage() {
               Sign In
             </Button>
 
-            {/* Divider only for event planners */}
-            {selectedRole === 'planner' && (
+            {/* Divider only for event organizers */}
+            {selectedRole === 'organizer' && (
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t" style={{ borderColor: 'var(--border)' }} />
@@ -402,10 +402,10 @@ export function LoginPage() {
               </div>
             )}
 
-            {selectedRole === 'planner' && (
+            {selectedRole === 'organizer' && (
               <Link to="/register">
                 <Button variant="secondary" className="w-full">
-                  Create Event Planner Account
+                  Create Event Organizer Account
                 </Button>
               </Link>
             )}

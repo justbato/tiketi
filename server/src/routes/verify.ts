@@ -90,7 +90,7 @@ verifyRoutes.post('/', async (c) => {
   // Verify event access
   const { data: event } = await supabase
     .from('events')
-    .select('owner_id, planner_id')
+    .select('owner_id, organizer_id, planner_id')
     .eq('id', body.event_id)
     .single();
 
@@ -98,11 +98,11 @@ verifyRoutes.post('/', async (c) => {
     return c.json({ error: 'Event not found' }, 404);
   }
 
-  // Check if user is owner/planner or assigned staff
+  // Check if user is owner/organizer or assigned staff
   let hasAccess = false;
 
-  if ((user.role === 'owner' || user.role === 'planner') && 
-      (event.owner_id === user.id || event.planner_id === user.id)) {
+  if ((user.role === 'owner' || user.role === 'planner' || user.role === 'organizer') && 
+      (event.owner_id === user.id || event.organizer_id === user.id || event.planner_id === user.id)) {
     hasAccess = true;
   } else if (user.role === 'gate') {
     // Check staff account status
@@ -248,7 +248,7 @@ verifyRoutes.get('/stats/:eventId', requireAuth, async (c) => {
   // Verify access
   const { data: event } = await supabase
     .from('events')
-    .select('owner_id, planner_id, capacity')
+    .select('owner_id, organizer_id, planner_id, capacity')
     .eq('id', eventId)
     .single();
 
@@ -257,8 +257,8 @@ verifyRoutes.get('/stats/:eventId', requireAuth, async (c) => {
   }
 
   let hasAccess = false;
-  if ((user.role === 'owner' || user.role === 'planner') && 
-      (event.owner_id === user.id || event.planner_id === user.id)) {
+  if ((user.role === 'owner' || user.role === 'planner' || user.role === 'organizer') && 
+      (event.owner_id === user.id || event.organizer_id === user.id || event.planner_id === user.id)) {
     hasAccess = true;
   } else if (user.role === 'gate') {
     const { data: staffUser } = await supabase
@@ -322,14 +322,14 @@ verifyRoutes.post('/undo/:ticketId', requireAuth, async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
-  if (user.role !== 'owner' && user.role !== 'planner') {
-    return c.json({ error: 'Only owners can undo check-ins' }, 403);
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer') {
+    return c.json({ error: 'Only organizers can undo check-ins' }, 403);
   }
 
   // Get ticket and verify ownership
   const { data: ticket } = await supabase
     .from('tickets')
-    .select('order:orders(event:events(owner_id, planner_id))')
+    .select('order:orders(event:events(owner_id, organizer_id, planner_id))')
     .eq('id', ticketId)
     .single();
 
@@ -337,10 +337,11 @@ verifyRoutes.post('/undo/:ticketId', requireAuth, async (c) => {
     return c.json({ error: 'Ticket not found' }, 404);
   }
 
-  const eventOwner = (ticket as any).order?.events?.owner_id;
-  const eventPlanner = (ticket as any).order?.events?.planner_id;
+  const ev = (ticket as any).order?.event || (ticket as any).order?.events;
+  const eventOwner = ev?.owner_id;
+  const eventOrganizer = ev?.organizer_id || ev?.planner_id;
   
-  if (eventOwner !== user.id && eventPlanner !== user.id) {
+  if (eventOwner !== user.id && eventOrganizer !== user.id) {
     return c.json({ error: 'Access denied' }, 403);
   }
 

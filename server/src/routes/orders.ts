@@ -4,7 +4,12 @@ import type { AppEnv, JwtPayload } from '../index.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { supabase } from '../index.js';
 import { generateOrderRef } from '../utils/codes.js';
-import { createMonnifyPayment, calculateFees } from '../services/monnify.js';
+import { generateTicketCode } from '../utils/tickets.js';
+import { 
+  initializeTransaction, 
+  calculateSplit, 
+  verifyTransaction 
+} from '../services/paystack.js';
 
 // =============================================
 // SCHEMAS
@@ -28,7 +33,7 @@ const createOrderSchema = z.object({
 
 export const orderRoutes = new Hono<AppEnv>();
 
-// Create order (public route)
+// Create order & initialize Paystack transaction (public route)
 orderRoutes.post('/', async (c) => {
   let body: z.infer<typeof createOrderSchema>;
   
@@ -38,22 +43,32 @@ orderRoutes.post('/', async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
-  // Validate event exists and is active
-  const { data: event } = await supabase
+  // Validate event exists, is active, and is approved
+  const { data: event, error: eventErr } = await supabase
     .from('events')
-    .select('id, status, sales_end_date')
+    .select('id, name, status, approval_status, sales_end_date, paystack_subaccount_code, fee_percent_override, organizer_id')
     .eq('id', body.event_id)
     .single();
 
-  if (!event || event.status !== 'active') {
-    return c.json({ error: 'Event not available for sales' }, 400);
+  if (eventErr || !event) {
+    return c.json({ error: 'Event not found' }, 404);
+  }
+
+  if (event.approval_status !== 'approved') {
+    return c.json({ 
+      error: 'This event is currently pending administrator approval and is not accepting ticket sales.' 
+    }, 400);
+  }
+
+  if (event.status !== 'active') {
+    return c.json({ error: 'Event is not available for sales' }, 400);
   }
 
   // Check sales end date
   const now = new Date();
   const salesEnd = new Date(event.sales_end_date);
   if (now > salesEnd) {
-    return c.json({ error: 'Sales have ended' }, 400);
+    return c.json({ error: 'Sales have ended for this event' }, 400);
   }
 
   // Validate model referral if provided
@@ -71,7 +86,7 @@ orderRoutes.post('/', async (c) => {
     }
   }
 
-  // Calculate totals and validate stock
+  // Calculate totals and validate ticket availability
   let subtotal = 0;
   const orderLines = [];
 
@@ -87,11 +102,11 @@ orderRoutes.post('/', async (c) => {
       return c.json({ error: `Invalid ticket type: ${item.ticket_type_id}` }, 400);
     }
 
-    // Check availability
     const { data: sold } = await supabase
       .from('order_lines')
-      .select('quantity')
-      .eq('ticket_type_id', item.ticket_type_id);
+      .select('quantity, order:orders!inner(status)')
+      .eq('ticket_type_id', item.ticket_type_id)
+      .in('orders.status', ['paid', 'pending']);
 
     const totalSold = sold?.reduce((sum, ol) => sum + ol.quantity, 0) || 0;
     const available = ticketType.quantity - totalSold;
@@ -113,15 +128,27 @@ orderRoutes.post('/', async (c) => {
     });
   }
 
-  // Calculate fees
-  const fees = calculateFees(subtotal);
-  const total = subtotal + fees.totalFees;
+  // Fetch platform fee % (or event override)
+  let feePercent = 5.0; // default 5%
+  if (event.fee_percent_override != null && !isNaN(Number(event.fee_percent_override))) {
+    feePercent = Number(event.fee_percent_override);
+  } else {
+    const { data: settings } = await supabase
+      .from('platform_settings')
+      .select('fee_percent')
+      .limit(1)
+      .single();
+    if (settings?.fee_percent != null) {
+      feePercent = Number(settings.fee_percent);
+    }
+  }
+
+  const split = calculateSplit(subtotal, feePercent);
+  const orderRef = generateOrderRef();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 mins window
 
   // Create order
-  const orderRef = generateOrderRef();
-  const expiresAt = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes
-
-  const { data: order, error } = await supabase
+  const { data: order, error: orderErr } = await supabase
     .from('orders')
     .insert({
       reference: orderRef,
@@ -131,15 +158,20 @@ orderRoutes.post('/', async (c) => {
       buyer_email: body.buyer_email,
       buyer_phone: body.buyer_phone,
       subtotal,
-      fees: fees.totalFees,
-      total,
+      gross: split.gross_naira,
+      fee_percent_used: feePercent,
+      platform_fee: split.platform_fee_naira,
+      organizer_share: split.organizer_share_naira,
+      fees: split.platform_fee_naira,
+      total: subtotal,
       status: 'pending',
       expires_at: expiresAt.toISOString()
     })
     .select()
     .single();
 
-  if (error) {
+  if (orderErr || !order) {
+    console.error('Failed to create order:', orderErr);
     return c.json({ error: 'Failed to create order' }, 500);
   }
 
@@ -156,20 +188,32 @@ orderRoutes.post('/', async (c) => {
       });
   }
 
-  // Create Monnify payment
+  // Initialize Paystack payment
   try {
-    const payment = await createMonnifyPayment({
-      amount: total,
+    const paystackSubaccount = event.paystack_subaccount_code || '';
+    
+    const payment = await initializeTransaction({
+      email: body.buyer_email,
+      amount_kobo: split.gross_kobo,
       reference: orderRef,
-      customerName: body.buyer_name,
-      customerEmail: body.buyer_email
+      subaccount_code: paystackSubaccount,
+      transaction_charge_kobo: split.platform_fee_kobo,
+      fee_bearer: 'subaccount',
+      metadata: {
+        order_id: order.id,
+        order_ref: orderRef,
+        event_id: body.event_id,
+        event_name: event.name,
+        buyer_name: body.buyer_name,
+        buyer_phone: body.buyer_phone,
+      }
     });
 
     await supabase
       .from('orders')
       .update({ 
-        payment_reference: payment.paymentReference,
-        monnify_response: payment
+        payment_reference: payment.reference,
+        paystack_reference: payment.reference,
       })
       .eq('id', order.id);
 
@@ -177,24 +221,113 @@ orderRoutes.post('/', async (c) => {
       order: {
         id: order.id,
         reference: orderRef,
-        total,
+        total: subtotal,
+        gross: split.gross_naira,
+        platform_fee: split.platform_fee_naira,
+        organizer_share: split.organizer_share_naira,
         expires_at: expiresAt.toISOString()
       },
       payment: {
-        account_number: payment.accountNumber,
-        bank_name: payment.bankName,
-        account_name: payment.accountName,
-        amount: total
+        authorization_url: payment.authorization_url,
+        access_code: payment.access_code,
+        reference: payment.reference,
+        amount: subtotal,
       }
     }, 201);
-  } catch (err) {
-    // If Monnify fails, still create order but mark as failed
+  } catch (err: any) {
+    console.error('Paystack initialization error:', err.message);
     await supabase
       .from('orders')
       .update({ status: 'payment_failed' })
       .eq('id', order.id);
 
-    return c.json({ error: 'Payment initialization failed' }, 500);
+    return c.json({ error: 'Payment initialization failed. Please try again.' }, 500);
+  }
+});
+
+// Verify transaction via Paystack (for inline popup callback or fallback check)
+orderRoutes.post('/:reference/verify-payment', async (c) => {
+  const { reference } = c.req.param();
+
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select('*, event:events(id, organizer_id)')
+    .eq('reference', reference)
+    .single();
+
+  if (error || !order) {
+    return c.json({ error: 'Order not found' }, 404);
+  }
+
+  if (order.status === 'paid') {
+    return c.json({ status: 'paid', message: 'Order already paid' });
+  }
+
+  try {
+    const verification = await verifyTransaction(order.paystack_reference || reference);
+
+    if (verification.status === 'success') {
+      const paidAt = new Date().toISOString();
+
+      // Mark order paid
+      await supabase
+        .from('orders')
+        .update({
+          status: 'paid',
+          paid_at: paidAt
+        })
+        .eq('id', order.id);
+
+      // Lock organizer bank details & record first_paid_at
+      if (order.event?.organizer_id) {
+        await supabase
+          .from('event_organizers')
+          .update({
+            bank_locked: true,
+            first_paid_at: paidAt
+          })
+          .eq('id', order.event.organizer_id);
+      }
+
+      // Generate tickets if not already generated
+      const { data: existingTickets } = await supabase
+        .from('tickets')
+        .select('id')
+        .eq('order_id', order.id);
+
+      if (!existingTickets || existingTickets.length === 0) {
+        const { data: orderLines } = await supabase
+          .from('order_lines')
+          .select('*, ticket_type:ticket_types(name, admits)')
+          .eq('order_id', order.id);
+
+        for (const line of orderLines || []) {
+          const ticketType = (line as any).ticket_type;
+          const admits = ticketType?.admits || 1;
+
+          for (let i = 0; i < line.quantity; i++) {
+            const code = generateTicketCode();
+            await supabase
+              .from('tickets')
+              .insert({
+                order_id: order.id,
+                ticket_type_id: line.ticket_type_id,
+                code,
+                admits,
+                buyer_name: order.buyer_name,
+                buyer_email: order.buyer_email
+              });
+          }
+        }
+      }
+
+      return c.json({ status: 'paid', message: 'Payment confirmed and tickets generated' });
+    } else {
+      return c.json({ status: verification.status, message: 'Payment not completed yet' });
+    }
+  } catch (err: any) {
+    console.error('Paystack verify error:', err.message);
+    return c.json({ error: 'Verification failed' }, 500);
   }
 });
 
@@ -221,17 +354,13 @@ orderRoutes.get('/:reference/status', async (c) => {
 });
 
 // =============================================
-// SECURE TICKET LOOKUP (Section 3)
-// Email is posted in the body — never exposed in the URL.
-// Identical 404 for: unknown ref, wrong email, unpaid order.
-// After 5 wrong email attempts the order locks for 15 minutes.
+// SECURE TICKET LOOKUP
 // =============================================
 
 const ticketLookupSchema = z.object({
   buyer_email: z.string().email().max(254).transform(v => v.trim().toLowerCase()),
 });
 
-/** Always returns the same generic 404 to prevent information leakage. */
 const TICKET_NOT_FOUND = { error: 'Order not found' } as const;
 
 orderRoutes.post('/:reference/tickets', async (c) => {
@@ -244,7 +373,6 @@ orderRoutes.post('/:reference/tickets', async (c) => {
     return c.json({ error: 'buyer_email is required' }, 400);
   }
 
-  // 1. Fetch order (all lockout columns included)
   const { data: order, error } = await supabase
     .from('orders')
     .select(`
@@ -256,22 +384,18 @@ orderRoutes.post('/:reference/tickets', async (c) => {
     .eq('reference', reference)
     .single();
 
-  // Unknown reference — same 404, no timing difference leakage is worth fixing here
   if (error || !order) {
     return c.json(TICKET_NOT_FOUND, 404);
   }
 
-  // 2. Enforce lockout
   const lockedUntil = order.access_locked_until ? new Date(order.access_locked_until) : null;
   const isLocked = lockedUntil !== null && lockedUntil > new Date();
   if (isLocked) {
     return c.json(TICKET_NOT_FOUND, 404);
   }
 
-  // 3. Email check (case-insensitive; already lowercased by schema transform)
   const storedEmail = (order.buyer_email || '').trim().toLowerCase();
   if (body.buyer_email !== storedEmail) {
-    // Increment attempt counter; lock if threshold reached
     const newAttempts = (order.access_attempts || 0) + 1;
     const MAX_ATTEMPTS = 5;
     const LOCK_MINUTES = 15;
@@ -285,12 +409,10 @@ orderRoutes.post('/:reference/tickets', async (c) => {
     return c.json(TICKET_NOT_FOUND, 404);
   }
 
-  // 4. Only paid orders may return tickets
   if (order.status !== 'paid') {
     return c.json(TICKET_NOT_FOUND, 404);
   }
 
-  // 5. Success — reset lockout counter and return tickets
   await supabase
     .from('orders')
     .update({ access_attempts: 0, access_locked_until: null })
@@ -326,15 +448,19 @@ orderRoutes.get('/:reference', requireAuth, async (c) => {
     return c.json({ error: 'Order not found' }, 404);
   }
 
-  // Check access
-  if (user.role === 'owner') {
+  if (user.role === 'owner' || user.role === 'organizer' || user.role === 'planner') {
     const { data: event } = await supabase
       .from('events')
-      .select('owner_id')
+      .select('organizer_id, planner_id, owner_id')
       .eq('id', order.event_id)
       .single();
 
-    if (event?.owner_id !== user.id) {
+    const isAuthorized = 
+      event?.organizer_id === user.id || 
+      event?.planner_id === user.id || 
+      (event as any)?.owner_id === user.id;
+
+    if (!isAuthorized) {
       return c.json({ error: 'Access denied' }, 403);
     }
   } else if (order.buyer_email !== user.email) {
@@ -344,12 +470,12 @@ orderRoutes.get('/:reference', requireAuth, async (c) => {
   return c.json({ order });
 });
 
-// List orders for event owner
+// List orders for event organizer
 orderRoutes.get('/', requireAuth, async (c) => {
   const user = c.get('user') as JwtPayload;
   const event_id = c.req.query('event_id');
 
-  if (user.role !== 'owner') {
+  if (user.role !== 'owner' && user.role !== 'organizer' && user.role !== 'planner') {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -357,9 +483,8 @@ orderRoutes.get('/', requireAuth, async (c) => {
     .from('orders')
     .select(`
       *,
-      event:events!inner(owner_id)
-    `)
-    .eq('events.owner_id', user.id);
+      event:events!inner(id, name, organizer_id, planner_id)
+    `);
 
   if (event_id) {
     query = query.eq('event_id', event_id);

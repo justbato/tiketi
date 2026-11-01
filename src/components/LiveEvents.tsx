@@ -108,7 +108,7 @@ export function PublicNavHeader({ activeTab = 'events' }: { activeTab?: 'events'
           <ThemeToggle />
           <Link to="/owner">
             <Button size="sm" variant="secondary" className="hidden sm:inline-flex">
-              Planner Login
+              Organizer Login
             </Button>
           </Link>
           <Link to="/events">
@@ -498,7 +498,7 @@ export function LiveEventsPage() {
           <div className="flex items-center gap-4 text-xs font-medium text-text-secondary">
             <Link to="/tickets/TKT-ORD-7K4M9XQ2" className="hover:text-accent">Re-download Tickets</Link>
             <span>•</span>
-            <Link to="/owner" className="hover:text-accent">Event Planner Dashboard</Link>
+            <Link to="/owner" className="hover:text-accent">Event Organizer Dashboard</Link>
             <span>•</span>
             <Link to="/model" className="hover:text-accent">Model Ambassador View</Link>
           </div>
@@ -785,7 +785,7 @@ export function PublicEventPage() {
                 <div className="flex items-start gap-2.5">
                   <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
                   <p>
-                    <strong>Instant Virtual Account:</strong> Powered by Monnify/Providus virtual accounts. Bank transfers are detected and verified automatically.
+                    <strong>Instant Automated Checkout:</strong> Powered by Paystack. Card, transfer, and USSD payments are detected and verified automatically.
                   </p>
                 </div>
               </div>
@@ -971,7 +971,7 @@ export function PublicEventPage() {
                     ))}
 
                     <div className="pt-2 border-t border-[var(--shadow-dark)] flex justify-between text-text-secondary text-[11px]">
-                      <span>Platform & Monnify Fee</span>
+                      <span>Platform & Processing Fee</span>
                       <span>{formatNaira(fee + vat)}</span>
                     </div>
 
@@ -1028,7 +1028,6 @@ export function CheckoutPage({
   subtotal: number;
   fee: number;
   isDirect: boolean;
-  model: any;
   onBack: () => void;
 }) {
   const navigate = useNavigate();
@@ -1036,77 +1035,107 @@ export function CheckoutPage({
   const [buyerName, setBuyerName] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
-  const [orderRef] = useState('TKT-ORD-' + generateTicketCode().replace(' ', ''));
-  const expiresAt = new Date(Date.now() + 20 * 60000).toISOString();
+  const [orderRef, setOrderRef] = useState('');
+  const [paymentData, setPaymentData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
-  const handleConfirmTransfer = () => {
-    // Generate individual tickets for each cart item
-    const generatedTickets = cartItems.flatMap((item, idx) =>
-      Array.from({ length: item.qty }, (_, i) => ({
-        id: `tkt_${orderRef.replace(/[^a-zA-Z0-9]/g, '')}_${idx}_${i}`,
-        orderRef,
-        code: generateTicketCode(),
-        type: item.name,
-        admits: item.admits || 1,
-        gender: item.gender,
-        ticketImageUrl: item.imageUrl || item.ticket_image_url || event.posterUrl || event.bannerUrl || '/posters/unifest_concert.jpg',
-        eventName: event.name,
-        eventVenue: event.venue,
-        eventDate: event.eventDate,
-        buyerName: buyerName.trim(),
-        buyerEmail: buyerEmail.trim(),
-        createdAt: new Date().toISOString()
-      }))
-    );
-
-    const orderId = 'ord_' + Date.now();
-    const orderRecord = {
-      id: orderId,
-      reference: orderRef,
-      eventId: event.id,
-      eventName: event.name,
-      modelId: model?.id || '',
-      buyerName: buyerName.trim(),
-      buyerEmail: buyerEmail.trim(),
-      buyerPhone: buyerPhone.trim(),
-      subtotal,
-      fee,
-      total,
-      ticketPrice: subtotal,
-      serviceFee: fee,
-      paymentReference: 'MNF-' + orderRef,
-      expiresAt: expiresAt,
-      status: 'paid' as const,
-      createdAt: new Date().toISOString(),
-      event,
-      lines: cartItems.map((item, idx) => ({
-        id: `line_${orderId}_${idx}`,
-        orderId,
-        ticketTypeId: item.id,
-        ticketTypeName: item.name,
-        quantity: item.qty,
-        price: item.price,
-        total: item.price * item.qty,
-        admits: item.admits || 1,
-        gender: item.gender,
-        imageUrl: item.imageUrl || item.ticket_image_url || event.posterUrl || event.bannerUrl || ''
-      })),
-      tickets: generatedTickets
-    };
-
-    // Cache order under dedicated key for direct instant retrieval on reload/lost connection
-    try {
-      localStorage.setItem('tikiti_order_' + orderRef, JSON.stringify({ order: orderRecord, tickets: generatedTickets }));
-    } catch (e) {
-      console.error(e);
+  // Load Paystack script
+  useEffect(() => {
+    if (!document.getElementById('paystack-inline-js')) {
+      const script = document.createElement('script');
+      script.id = 'paystack-inline-js';
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      document.body.appendChild(script);
     }
+  }, []);
 
-    // Add to stored orders list
-    const stored = getStoredOrders();
-    saveStoredOrders([orderRecord, ...stored.filter(o => o.reference !== orderRef)]);
+  // Poll order status until paid
+  const pollOrderStatus = async (ref: string) => {
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await api.orders.getStatus(ref);
+        if (res.status === 'paid') {
+          clearInterval(interval);
+          setVerifying(false);
+          showToast('Payment confirmed! Opening your tickets...', 'success');
+          navigate('/tickets/' + ref);
+        }
+      } catch {}
+      if (attempts > 30) {
+        clearInterval(interval);
+        setVerifying(false);
+      }
+    }, 2500);
+  };
 
-    showToast('Payment confirmed! Opening your tickets...', 'success');
-    navigate('/tickets/' + orderRef);
+  const handleStartPaystackPayment = async () => {
+    if (!buyerName.trim() || !buyerEmail.trim() || !buyerPhone.trim()) {
+      showToast('Please fill in your name, email and phone', 'error');
+      return;
+    }
+    setLoading(true);
+
+    try {
+      // 1. Create order on server and initialize Paystack transaction
+      const res = await api.orders.create({
+        event_id: event.id,
+        model_id: isDirect ? null : (model?.id || null),
+        buyer_name: buyerName.trim(),
+        buyer_email: buyerEmail.trim(),
+        buyer_phone: buyerPhone.trim(),
+        items: cartItems.map(item => ({
+          ticket_type_id: item.id,
+          quantity: item.qty
+        }))
+      });
+
+      const ref = res?.order?.reference || res?.payment?.reference;
+      setOrderRef(ref);
+      setPaymentData(res?.payment);
+      setStep('payment');
+
+      // 2. Open Paystack Inline Popup
+      openPaystackModal(res?.payment, ref);
+    } catch (err: any) {
+      showToast(err.message || 'Could not initialize payment', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openPaystackModal = (payData: any, ref: string) => {
+    const paystackKey = (import.meta as any).env?.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_placeholder';
+
+    if (typeof (window as any).PaystackPop !== 'undefined' && payData?.access_code) {
+      const handler = (window as any).PaystackPop.setup({
+        key: paystackKey,
+        email: buyerEmail.trim(),
+        amount: total * 100,
+        ref: ref,
+        access_code: payData.access_code,
+        onClose: () => {
+          showToast('Payment window closed. You can click Pay Now to retry.', 'info');
+        },
+        callback: async (response: any) => {
+          setVerifying(true);
+          try {
+            await api.orders.verifyPayment(response.reference || ref);
+            showToast('Payment verified! Loading your tickets...', 'success');
+            navigate('/tickets/' + (response.reference || ref));
+          } catch {
+            pollOrderStatus(response.reference || ref);
+          }
+        }
+      });
+      handler.openIframe();
+    } else if (payData?.authorization_url) {
+      // Fallback redirect if inline popup is unavailable
+      window.location.href = payData.authorization_url;
+    }
   };
 
   if (step === 'payment') {
@@ -1123,105 +1152,66 @@ export function CheckoutPage({
           <NeuCard className="p-6 sm:p-7 mb-6">
             <div className="text-center mb-6">
               <span className="text-xs px-3 py-1 rounded-full neu-card-inset font-semibold text-accent">
-                Step 2: Bank Transfer
+                Step 2: Paystack Checkout
               </span>
               <h2
                 className="text-xl sm:text-2xl font-bold mt-2"
                 style={{ color: 'var(--text-primary)', fontFamily: "'Unlock', cursive" }}
               >
-                Pay via Bank Transfer
+                Complete Payment
               </h2>
               <p className="text-xs text-text-secondary mt-1">
-                Transfer the exact amount to your assigned Providus virtual account.
+                Pay securely via Card, Bank Transfer, USSD, or Mobile Money
               </p>
             </div>
 
-            {/* Virtual Account Box */}
-            <div className="neu-card-inset p-5 rounded-2xl mb-5 space-y-4">
-              <div>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary block mb-1">
-                  Bank Name
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-text-primary">Providus Bank</span>
-                  <CopyButton text="Providus Bank" label="Copy" />
-                </div>
+            {/* Order Summary Box */}
+            <div className="neu-card-inset p-5 rounded-2xl mb-5 space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-text-secondary">Order Reference:</span>
+                <span className="font-mono font-bold text-accent">{orderRef}</span>
               </div>
-
-              <div>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary block mb-1">
-                  Virtual Account Number
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-xl font-mono font-bold tracking-wider text-accent">
-                    7294018563
-                  </span>
-                  <CopyButton text="7294018563" label="Copy Account" />
-                </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-text-secondary">Event:</span>
+                <span className="font-bold text-text-primary truncate max-w-[200px]">{event.name}</span>
               </div>
-
-              <div>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary block mb-1">
-                  Exact Amount to Pay
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-emerald-500">
-                    {formatNaira(total)}
-                  </span>
-                  <CopyButton text={total.toString()} label="Copy Amount" />
-                </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-text-secondary">Customer:</span>
+                <span className="text-text-primary">{buyerName} ({buyerEmail})</span>
               </div>
-
-              <div>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary block mb-1">
-                  Account Name
-                </span>
-                <span className="text-xs font-semibold text-text-primary">
-                  TiKeTi Events Ltd / Monnify
+              <div className="pt-2 border-t border-[var(--shadow-dark)] flex justify-between items-center">
+                <span className="text-sm font-bold text-text-primary">Total to Pay:</span>
+                <span className="text-xl font-bold text-emerald-500 font-mono">
+                  {formatNaira(total)}
                 </span>
               </div>
             </div>
 
-            {/* Countdown Reservation Notice */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl neu-card-inset mb-5">
-              <div>
-                <span className="text-xs font-semibold text-text-primary block">
-                  Time Remaining
-                </span>
-                <span className="text-[10px] text-text-secondary">
-                  Tickets held until timer expires
-                </span>
+            {/* Payment verification status */}
+            {verifying ? (
+              <div className="p-4 rounded-xl neu-card-inset text-center space-y-2 mb-4">
+                <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto" />
+                <p className="text-xs font-bold text-text-primary">
+                  Verifying transaction with Paystack...
+                </p>
+                <p className="text-[11px] text-text-secondary">
+                  Your tickets will display on screen immediately once payment is confirmed.
+                </p>
               </div>
-              <CountdownTimer expiresAt={expiresAt} />
-            </div>
-
-            {/* Order Recap */}
-            <div className="neu-card-inset p-3.5 rounded-xl text-xs space-y-1.5 mb-5">
-              <div className="flex justify-between text-text-secondary">
-                <span>Reference:</span>
-                <span className="font-mono font-bold text-text-primary">{orderRef}</span>
+            ) : (
+              <div className="space-y-3">
+                <Button
+                  variant="primary"
+                  className="w-full py-4 font-bold text-sm shadow-lg flex items-center justify-center gap-2"
+                  onClick={() => openPaystackModal(paymentData, orderRef)}
+                >
+                  Pay Now with Paystack — {formatNaira(total)}
+                </Button>
+                <p className="text-[11px] text-center text-text-secondary">
+                  Guaranteed secure checkout via Paystack Payment Gateway
+                </p>
               </div>
-              <div className="flex justify-between text-text-secondary">
-                <span>Event:</span>
-                <span className="font-semibold text-text-primary truncate ml-2">{event.name}</span>
-              </div>
-              <div className="flex justify-between text-text-secondary">
-                <span>Buyer:</span>
-                <span className="text-text-primary">{buyerName}</span>
-              </div>
-              <div className="flex justify-between text-text-secondary">
-                <span>Ambassador Attribution:</span>
-                <span className="text-accent font-semibold">{isDirect ? 'Direct (None)' : model?.name || 'Ambassador'}</span>
-              </div>
-            </div>
-
-            <Button
-              variant="primary"
-              className="w-full py-3.5 font-bold text-sm"
-              onClick={handleConfirmTransfer}
-            >
-              I Have Sent The Transfer — View Tickets
-            </Button>
+            )}
           </NeuCard>
         </div>
       </div>
@@ -1315,11 +1305,12 @@ export function CheckoutPage({
 
           <Button
             variant="primary"
-            className="w-full py-3.5 font-bold text-sm"
+            className="w-full py-3.5 font-bold text-sm shadow-md"
             disabled={!buyerName || !buyerEmail || !buyerPhone}
-            onClick={() => setStep('payment')}
+            loading={loading}
+            onClick={handleStartPaystackPayment}
           >
-            Continue to Bank Transfer — {formatNaira(total)}
+            Pay with Paystack — {formatNaira(total)}
           </Button>
         </NeuCard>
       </div>

@@ -54,18 +54,24 @@ modelRoutes.post('/invite', requireAuth, async (c) => {
 
   const user = c.get('user') as JwtPayload;
 
-  if (user.role !== 'owner' && user.role !== 'planner') {
-    return c.json({ error: 'Only event planners can invite models' }, 403);
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer') {
+    return c.json({ error: 'Only event organizers can invite models' }, 403);
   }
 
   // Verify event ownership
   const { data: event } = await supabase
     .from('events')
-    .select('id, planner_id')
+    .select('id, organizer_id, planner_id, owner_id')
     .eq('id', body.event_id)
     .single();
 
-  if (!event || (event.planner_id && event.planner_id !== user.id && (event as any).owner_id !== user.id)) {
+  const isOwner = event && (
+    event.organizer_id === user.id ||
+    event.planner_id === user.id ||
+    (event as any).owner_id === user.id
+  );
+
+  if (!event || !isOwner) {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -126,7 +132,7 @@ modelRoutes.get('/', requireAuth, async (c) => {
   const user = c.get('user') as JwtPayload;
   const event_id = c.req.query('event_id');
 
-  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'admin') {
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -148,7 +154,7 @@ modelRoutes.get('/', requireAuth, async (c) => {
   const { data: events } = await supabase
     .from('events')
     .select('id')
-    .or(`planner_id.eq.${user.id},owner_id.eq.${user.id}`);
+    .or(`organizer_id.eq.${user.id},planner_id.eq.${user.id},owner_id.eq.${user.id}`);
 
   const eventIds = events?.map(e => e.id) || [];
   if (eventIds.length === 0) return c.json({ models: [] });

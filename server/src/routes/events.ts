@@ -22,7 +22,6 @@ const createEventSchema = z.object({
   banner_url: z.string().url().optional(),
   logo_url: z.string().url().optional(),
   poster_url: z.string().url().optional(),
-  // trim to 40 chars; fall back to 'Other' if omitted or blank
   category: z.string().max(40).optional().transform(v => {
     const trimmed = (v || '').trim();
     return trimmed.length > 0 ? trimmed.slice(0, 40) : 'Other';
@@ -63,13 +62,13 @@ const updateEventSchema = z.object({
 
 export const eventRoutes = new Hono<AppEnv>();
 
-// Auth for all routes
-
-// Public list for the homepage (no login)
+// Public list for the homepage (Only approved & active events)
 eventRoutes.get('/public', async (c) => {
   const { data: events, error } = await supabase
     .from('events')
-    .select('id, name, venue, event_date, poster_url, banner_url, category')
+    .select('id, name, venue, event_date, poster_url, banner_url, category, approval_status, status')
+    .eq('status', 'active')
+    .eq('approval_status', 'approved')
     .order('event_date', { ascending: true });
 
   if (error) {
@@ -77,12 +76,12 @@ eventRoutes.get('/public', async (c) => {
     return c.json({ error: 'Failed to fetch events' }, 500);
   }
 
-  return c.json({ events });
+  return c.json({ events: events || [] });
 });
 
 eventRoutes.use('*', requireAuth);
 
-// Create event
+// Create event (Defaults to approval_status: 'pending')
 eventRoutes.post('/', async (c) => {
   let body: z.infer<typeof createEventSchema>;
   try {
@@ -93,13 +92,14 @@ eventRoutes.post('/', async (c) => {
 
   const user = c.get('user') as JwtPayload;
 
-  if (user.role !== 'owner' && user.role !== 'planner') {
-    return c.json({ error: 'Only event planners can create events' }, 403);
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer') {
+    return c.json({ error: 'Only event organizers can create events' }, 403);
   }
 
   const { data: event, error } = await supabase
     .from('events')
     .insert({
+      organizer_id: user.id,
       planner_id: user.id,
       name: body.name,
       description: body.description,
@@ -115,12 +115,14 @@ eventRoutes.post('/', async (c) => {
       logo_url: body.logo_url || null,
       poster_url: body.poster_url || null,
       category: body.category || 'Other',
-      status: 'draft'
+      status: 'draft',
+      approval_status: 'pending'
     })
     .select()
     .single();
 
   if (error) {
+    console.error('Failed to create event:', error);
     return c.json({ error: 'Failed to create event' }, 500);
   }
 
@@ -131,20 +133,20 @@ eventRoutes.post('/', async (c) => {
     action: 'event.create',
     entity_type: 'event',
     entity_id: event.id,
-    details: `Created event: ${event.name}`
+    details: `Created event: ${event.name} (pending approval)`
   });
 
   return c.json(event, 201);
 });
 
-// List events for owner/planner
+// List events for organizer/owner
 eventRoutes.get('/', async (c) => {
   const user = c.get('user') as JwtPayload;
 
   let query = supabase.from('events').select('*');
 
-  if (user.role === 'owner' || user.role === 'planner') {
-    query = query.or(`planner_id.eq.${user.id},owner_id.eq.${user.id}`);
+  if (user.role === 'owner' || user.role === 'planner' || user.role === 'organizer') {
+    query = query.or(`organizer_id.eq.${user.id},planner_id.eq.${user.id},owner_id.eq.${user.id}`);
   }
 
   const { data: events, error } = await query.order('created_at', { ascending: false });
@@ -172,9 +174,13 @@ eventRoutes.get('/:id', async (c) => {
     return c.json({ error: 'Event not found' }, 404);
   }
 
-  // Check ownership
-  const isOwner = event.planner_id === user.id || (event as any).owner_id === user.id;
-  if ((user.role === 'owner' || user.role === 'planner') && !isOwner) {
+  const isOwner = 
+    event.organizer_id === user.id || 
+    event.planner_id === user.id || 
+    (event as any).owner_id === user.id ||
+    user.role === 'admin';
+
+  if (!isOwner) {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -210,7 +216,6 @@ eventRoutes.put('/:id', async (c) => {
     return c.json({ error: 'Failed to update event' }, 500);
   }
 
-  // Audit log
   await supabase.from('audit_logs').insert({
     actor_id: user.id,
     actor_role: user.role,
@@ -242,7 +247,6 @@ eventRoutes.delete('/:id', async (c) => {
     return c.json({ error: 'Failed to delete event' }, 500);
   }
 
-  // Audit log
   await supabase.from('audit_logs').insert({
     actor_id: user.id,
     actor_role: user.role,
@@ -265,24 +269,24 @@ eventRoutes.get('/:id/stats', async (c) => {
     return c.json({ error: 'Access denied' }, 403);
   }
 
-  // Get ticket types
   const { data: ticketTypes } = await supabase
     .from('ticket_types')
     .select('*')
     .eq('event_id', id);
 
-  // Get orders
   const { data: orders } = await supabase
     .from('orders')
-    .select('total, status')
+    .select('total, gross, platform_fee, organizer_share, status')
     .eq('event_id', id)
     .eq('status', 'paid');
 
-  const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0;
+  const totalRevenue = orders?.reduce((sum, o) => sum + (o.gross || o.total || 0), 0) || 0;
+  const organizerShare = orders?.reduce((sum, o) => sum + (o.organizer_share || o.total || 0), 0) || 0;
   const totalOrders = orders?.length || 0;
 
   return c.json({
     totalRevenue,
+    organizerShare,
     totalOrders,
     ticketTypes: ticketTypes || []
   });

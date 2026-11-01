@@ -27,7 +27,7 @@ import {
   PaymentSuccess,
   TicketQR
 } from './components/LiveEvents';
-import { EventPlannerRegistration } from './components/EventPlannerRegistration';
+import { EventPlannerRegistration as EventOrganizerRegistration } from './components/EventPlannerRegistration';
 import { LoginPage, InviteConfirmPage } from './components/LoginPage';
 import { AdminLoginPage } from './components/AdminLoginPage';
 import { TicketPass } from './components/TicketPass';
@@ -188,7 +188,7 @@ function GlobalFloatingNav() {
   if (isAdmin) {
     const adminNavItems = [
       { label: 'Overview', path: '/admin', icon: LayoutDashboard, exact: true },
-      { label: 'Planners', path: '/admin/owners', icon: Users },
+      { label: 'Organizers', path: '/admin/owners', icon: Users },
       { label: 'Events', path: '/admin/events', icon: Calendar },
       { label: 'Orders', path: '/admin/orders', icon: ShoppingBag },
       { label: 'Public Site', path: '/events', icon: Globe },
@@ -225,10 +225,10 @@ function GlobalFloatingNav() {
     );
   }
 
-  // Public / Buyer / Gate / Planner Portal navigation:
+  // Public / Buyer / Gate / Organizer Portal navigation:
   const portalPath = authUser?.role === 'admin'
     ? '/admin'
-    : authUser?.role === 'planner'
+    : (authUser?.role === 'organizer' || authUser?.role === 'planner')
     ? '/owner'
     : authUser?.role === 'model'
     ? '/model'
@@ -316,7 +316,7 @@ function AppLayout({ children, role }: { children: React.ReactNode; role: string
   const navItems: Record<string, { icon: any; label: string; path: string }[]> = {
     admin: [
       { icon: LayoutDashboard, label: 'Overview', path: '/admin' },
-      { icon: Users, label: 'Event Planners', path: '/admin/owners' },
+      { icon: Users, label: 'Event Organizers', path: '/admin/owners' },
       { icon: Calendar, label: 'Events', path: '/admin/events' },
       { icon: ShoppingBag, label: 'Orders', path: '/admin/orders' },
       { icon: DollarSign, label: 'Payouts', path: '/admin/payouts' },
@@ -352,7 +352,7 @@ function AppLayout({ children, role }: { children: React.ReactNode; role: string
           </button>
         </div>
 
-        {/* Active Event Banner in Sidebar for Planners */}
+        {/* Active Event Banner in Sidebar for Organizers */}
         {role === 'owner' && authUser?.eventName && (
           <div className="px-3 pt-3 pb-1">
             <div className="p-2.5 rounded-xl neu-card-inset text-xs border border-[var(--shadow-dark)]">
@@ -413,7 +413,7 @@ function AppLayout({ children, role }: { children: React.ReactNode; role: string
             <Menu size={20} style={{ color: 'var(--text-primary)' }} />
           </button>
 
-          {/* Multi-event switcher for Event Planners in top bar */}
+          {/* Multi-event switcher for Event Organizers in top bar */}
           {role === 'owner' && userEvents.length > 1 && (
             <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl neu-card-inset text-xs border border-[var(--shadow-dark)] max-w-[220px] sm:max-w-xs">
               <Calendar size={13} className="text-accent shrink-0" />
@@ -565,15 +565,46 @@ function OwnerDashboard() {
   const totalRevenue = tickets.reduce((s, t) => s + (t.sold * t.price), 0);
   const totalCapacity = tickets.reduce((s, t) => s + (t.quantity * t.admits), 0);
 
+  const currentUser = api.auth.getCurrentUser();
+  const storedEvents = getStoredEvents();
+  const currentEvent = (currentUser?.event_id ? storedEvents.find(e => e.id === currentUser.event_id) : null) || storedEvents[0] || mockEvents[0];
+  const isPending = (currentEvent as any)?.approval_status === 'pending';
+  const isRejected = (currentEvent as any)?.approval_status === 'rejected';
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold">Dashboard</h1>
-          <p className="text-xs sm:text-sm text-text-secondary mt-1">{event.name}</p>
+          <h1 className="text-xl sm:text-2xl font-semibold">Organizer Dashboard</h1>
+          <p className="text-xs sm:text-sm text-text-secondary mt-1">{currentEvent.name}</p>
         </div>
         <Link to="/owner/events"><Button variant="secondary" icon={Calendar}>Events</Button></Link>
       </div>
+
+      {isPending && (
+        <div className="mb-4 p-4 rounded-2xl flex items-start gap-3 border border-amber-500/30 bg-amber-500/10 animate-fade-up">
+          <Clock className="text-amber-500 shrink-0 mt-0.5" size={20} />
+          <div>
+            <h4 className="text-sm font-bold text-amber-500">Event Pending Administrator Approval</h4>
+            <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+              Your event is undergoing review. Once an administrator approves your event and sets up your Paystack settlement subaccount, tickets will automatically become available for online sales.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isRejected && (
+        <div className="mb-4 p-4 rounded-2xl flex items-start gap-3 border border-red-500/30 bg-red-500/10 animate-fade-up">
+          <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={20} />
+          <div>
+            <h4 className="text-sm font-bold text-red-500">Event Not Approved</h4>
+            <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+              {(currentEvent as any)?.approval_note || 'Please review your event details or contact support for assistance.'}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <StatCard label="Tickets Sold" value={totalSold} icon={TIcon} trend={{ value: 12, positive: true }} delay={0} />
         <StatCard label="Revenue" value={formatNaira(totalRevenue)} icon={DollarSign} delay={50} />
@@ -632,7 +663,7 @@ function OwnerDashboard() {
               </div>
             ))}
           </div>
-          <p className="text-xs text-text-muted mt-3 text-center">All model names visible to event planner</p>
+          <p className="text-xs text-text-muted mt-3 text-center">All model names visible to event organizer</p>
         </BentoCard>
         <BentoCard className="sm:col-span-1 lg:col-span-3" delay={400}>
           <h3 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Unlock', cursive" }}>Sales Source</h3>
@@ -763,7 +794,7 @@ function VerificationPage() {
               <span className="hidden sm:inline">Sign Out</span>
             </button>
           ) : (
-            <Link to="/owner"><Button size="sm" variant="secondary">Planner</Button></Link>
+            <Link to="/owner"><Button size="sm" variant="secondary">Organizer</Button></Link>
           )}
         </div>
       </header>
@@ -950,7 +981,7 @@ function ModelDashboard() {
                 <span className="hidden sm:inline">Sign Out</span>
               </button>
             ) : (
-              <Link to="/owner"><Button size="sm" variant="secondary">Planner View</Button></Link>
+              <Link to="/owner"><Button size="sm" variant="secondary">Organizer View</Button></Link>
             )}
           </div>
         </div>
@@ -1050,10 +1081,10 @@ function OwnerEvents() {
     if (raw) user = JSON.parse(raw);
   } catch (e) {}
 
-  // Filter to planner's specific event in 1 Event = 1 Account architecture
+  // Filter to organizer's specific event in 1 Organizer = 1 Event architecture
   const myEvents = events.filter(e => {
     if (user?.event_id && e.id === user.event_id) return true;
-    if (user?.id && (e.ownerId === user.id || (e as any).plannerId === user.id)) return true;
+    if (user?.id && (e.ownerId === user.id || (e as any).organizerId === user.id || (e as any).plannerId === user.id)) return true;
     return false;
   });
 
@@ -1074,7 +1105,7 @@ function OwnerEvents() {
               One Event = One Account Architecture
             </h3>
             <p className="text-xs text-text-secondary mt-0.5">
-              Each planner account is strictly dedicated to a single event. To host another event, register a new event account with your email.
+              You can use the same email and account number to host multiple events. Each event has its own organizer dashboard and password.
             </p>
           </div>
         </div>
@@ -1727,17 +1758,17 @@ function AdminOwners() {
   const events = getStoredEvents();
 
   const handleDeactivate = async (plannerId: string, eventName?: string) => {
-    if (!window.confirm(`Are you sure you want to deactivate this event planner account? \n\nThe event "${eventName || 'Event'}" will remain in database history for financial audit and records, but will be closed from live sales. The planner will no longer be able to log in or access this event.`)) {
+    if (!window.confirm(`Are you sure you want to deactivate this event organizer account? \n\nThe event "${eventName || 'Event'}" will remain in database history for financial audit and records, but will be closed from live sales. The organizer will no longer be able to log in or access this event.`)) {
       return;
     }
 
     setLoadingId(plannerId);
     try {
-      await api.admin.deactivatePlanner(plannerId);
+      await api.admin.deactivateOrganizer(plannerId);
       setPlanners(getStoredPlanners());
-      showToast('Event planner account deactivated and closed. Event archived in history.', 'success');
+      showToast('Event organizer account deactivated and closed. Event archived in history.', 'success');
     } catch (e: any) {
-      showToast(e.message || 'Failed to deactivate planner', 'error');
+      showToast(e.message || 'Failed to deactivate organizer', 'error');
     } finally {
       setLoadingId(null);
     }
@@ -1752,10 +1783,10 @@ function AdminOwners() {
   return (
     <div>
       <SectionHeader
-        title="Event Planners & Accounts"
+        title="Event Organizers & Accounts"
         action={
           <Input
-            placeholder="Search planners, events or email..."
+            placeholder="Search organizers, events or email..."
             icon={Search}
             value={search}
             onChange={setSearch}
@@ -1768,7 +1799,7 @@ function AdminOwners() {
       <div className="mb-4 p-3.5 rounded-2xl neu-card-inset border border-accent/20 flex items-start gap-2.5 text-xs text-text-secondary">
         <Info size={16} className="text-accent shrink-0 mt-0.5" />
         <p>
-          <strong>Account Lifecycle Control:</strong> Once an event concludes, site administrators can deactivate the planner’s account. The event and all historical ticket sales remain permanently preserved for financial auditing, but cannot sell tickets or be modified by the planner.
+          <strong>Account Lifecycle Control:</strong> Once an event concludes, site administrators can deactivate the organizer’s account. The event and all historical ticket sales remain permanently preserved for financial auditing, but cannot sell tickets or be modified by the organizer.
         </p>
       </div>
 
@@ -1776,7 +1807,7 @@ function AdminOwners() {
         <table>
           <thead>
             <tr>
-              <th>Planner & Email</th>
+              <th>Organizer & Email</th>
               <th>Managed Event</th>
               <th>Status</th>
               <th>Created</th>
@@ -1880,6 +1911,102 @@ function AdminOwners() {
 
 function AdminEvents() {
   const [events, setEvents] = useState(() => getStoredEvents());
+  const [pendingEvents, setPendingEvents] = useState<any[]>([]);
+  const [loadingPending, setLoadingPending] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pending' | 'live' | 'ended'>('pending');
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Bank edit modal state
+  const [bankModalEvent, setBankModalEvent] = useState<any | null>(null);
+  const [modalBankCode, setModalBankCode] = useState('');
+  const [modalBankName, setModalBankName] = useState('');
+  const [modalAccountNumber, setModalAccountNumber] = useState('');
+  const [modalAccountName, setModalAccountName] = useState('');
+  const [banksList, setBanksList] = useState<{ id: number; name: string; code: string }[]>([]);
+  const [resolvingModalBank, setResolvingModalBank] = useState(false);
+
+  // Fetch banks and pending events
+  const loadPending = async () => {
+    setLoadingPending(true);
+    try {
+      const list = await api.admin.getPendingEvents();
+      setPendingEvents(list);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPending();
+    api.auth.getBanks().then(setBanksList).catch(() => {});
+  }, []);
+
+  const handleApprove = async (eventId: string, eventName: string) => {
+    setActionLoadingId(eventId);
+    try {
+      await api.admin.approveEvent(eventId);
+      showToast(`Event "${eventName}" approved! Paystack subaccount created.`, 'success');
+      loadPending();
+      // Update local storage
+      const updated = events.map(e => e.id === eventId ? { ...e, approval_status: 'approved', status: 'active' as const } : e);
+      saveStoredEvents(updated);
+      setEvents(updated);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to approve event', 'error');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleReject = async (eventId: string, eventName: string) => {
+    const reason = window.prompt(`Enter reason for rejecting "${eventName}":`, 'Incomplete venue or ticket details.');
+    if (reason === null) return;
+
+    setActionLoadingId(eventId);
+    try {
+      await api.admin.rejectEvent(eventId, reason);
+      showToast(`Event "${eventName}" rejected.`, 'info');
+      loadPending();
+      const updated = events.map(e => e.id === eventId ? { ...e, approval_status: 'rejected', status: 'draft' as const } : e);
+      saveStoredEvents(updated);
+      setEvents(updated);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reject event', 'error');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openBankModal = (evt: any) => {
+    setBankModalEvent(evt);
+    const org = evt.organizer || {};
+    setModalBankCode(org.bank_code || '044');
+    setModalBankName(org.bank_name || 'Access Bank');
+    setModalAccountNumber(org.account_number || '');
+    setModalAccountName(org.account_name || '');
+  };
+
+  const handleSaveBankDetails = async () => {
+    if (!modalAccountNumber || !modalAccountName || !modalBankName) {
+      showToast('Please fill all bank fields', 'error');
+      return;
+    }
+    try {
+      await api.admin.updateEventBankDetails(bankModalEvent.id, {
+        bank_name: modalBankName,
+        bank_code: modalBankCode,
+        account_number: modalAccountNumber.trim(),
+        account_name: modalAccountName.trim(),
+      });
+      showToast('Organizer bank details updated & logged!', 'success');
+      setBankModalEvent(null);
+      loadPending();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update bank details', 'error');
+    }
+  };
 
   const handleCloseEvent = async (evtId: string, evtName: string) => {
     if (!window.confirm(`Close event "${evtName}"? It will remain in system history for audit and financial records, but will no longer be live for ticket sales.`)) {
@@ -1891,31 +2018,160 @@ function AdminEvents() {
     showToast(`Event "${evtName}" closed from live sales. Preserved in history.`, 'success');
   };
 
+  const liveEvents = events.filter(e => e.status === 'active' && (e as any).approval_status !== 'pending');
+  const endedEvents = events.filter(e => e.status === 'ended' || e.status === 'taken_down');
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4 sm:mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold">All Platform Events</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold">Event Approvals & Management</h1>
           <p className="text-xs text-text-secondary mt-0.5">
-            Active and historical ended events permanently logged in the system.
+            Approve organizer events, link Paystack subaccounts, and manage live listings.
           </p>
         </div>
       </div>
-      <div className="space-y-3">
-        {events.map(evt => {
-          const isEnded = evt.status === 'ended' || evt.status === 'taken_down';
 
-          return (
+      {/* Tabs */}
+      <div className="flex items-center gap-2 mb-5 border-b border-[var(--border)] pb-2">
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+            activeTab === 'pending'
+              ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Clock size={14} /> Pending Approval ({pendingEvents.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('live')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+            activeTab === 'live'
+              ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <CheckCircle2 size={14} /> Live Events ({liveEvents.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('ended')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+            activeTab === 'ended'
+              ? 'bg-accent/15 text-accent border border-accent/30'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Calendar size={14} /> Ended / Concluded ({endedEvents.length})
+        </button>
+      </div>
+
+      {/* ── TAB 1: PENDING APPROVAL ── */}
+      {activeTab === 'pending' && (
+        <div className="space-y-4">
+          {loadingPending ? (
+            <div className="card p-8 text-center text-xs text-text-secondary">
+              Checking for events awaiting approval...
+            </div>
+          ) : pendingEvents.length === 0 ? (
+            <div className="card p-8 text-center space-y-2">
+              <CheckCircle2 size={32} className="text-emerald-500 mx-auto" />
+              <h3 className="text-sm font-bold text-text-primary">All Caught Up!</h3>
+              <p className="text-xs text-text-secondary max-w-sm mx-auto">
+                There are currently no organizer events awaiting administrator approval.
+              </p>
+            </div>
+          ) : (
+            pendingEvents.map(evt => {
+              const org = evt.organizer || {};
+              const isLoading = actionLoadingId === evt.id;
+
+              return (
+                <div key={evt.id} className="card p-5 border border-amber-500/30 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-base font-bold text-text-primary">{evt.name}</h3>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                          Awaiting Approval
+                        </span>
+                      </div>
+                      <p className="text-xs text-text-secondary mt-1">{evt.venue} • {formatDate(evt.event_date || evt.eventDate)}</p>
+                      <p className="text-xs text-text-muted mt-0.5">Capacity: {evt.capacity} • Category: {evt.category || 'General'}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={isLoading}
+                        onClick={() => handleApprove(evt.id, evt.name)}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5"
+                      >
+                        <Check size={14} /> Approve &amp; Link Paystack
+                      </Button>
+
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={isLoading}
+                        onClick={() => handleReject(evt.id, evt.name)}
+                        className="!text-red-500 hover:!bg-red-500/10 border-red-500/30 flex items-center gap-1.5"
+                      >
+                        <X size={14} /> Reject
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Organizer & Settlement Payout Details */}
+                  <div className="p-3.5 rounded-xl neu-card-inset text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-text-primary flex items-center gap-1.5">
+                        <Building2 size={14} className="text-accent" />
+                        Organizer Payout Settlement Account
+                      </span>
+                      <button
+                        onClick={() => openBankModal(evt)}
+                        className="text-[11px] font-semibold text-accent hover:underline flex items-center gap-1"
+                      >
+                        <Edit2 size={12} /> Edit Bank Info
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-[var(--border)]">
+                      <div>
+                        <span className="text-[10px] text-text-muted block">Organizer Name / Email</span>
+                        <span className="font-semibold text-text-primary">{org.name || 'Organizer'} ({org.email || '—'})</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-text-muted block">Bank &amp; Account Number</span>
+                        <span className="font-semibold text-text-primary font-mono">{org.bank_name || 'Bank'} — {org.account_number || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-text-muted block">Verified Account Name</span>
+                        <span className="font-semibold text-emerald-400 font-mono">{org.account_name || 'Verified on Registration'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* ── TAB 2: LIVE EVENTS ── */}
+      {activeTab === 'live' && (
+        <div className="space-y-3">
+          {liveEvents.map(evt => (
             <div key={evt.id} className="card p-4 sm:p-5">
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 className="text-sm font-semibold truncate">{evt.name}</h3>
-                    {isEnded ? (
-                      <Badge variant="neutral">Ended (Historical Record)</Badge>
-                    ) : (
-                      <Badge variant="success">Live & Active</Badge>
-                    )}
+                    <Badge variant="success">Live &amp; Active</Badge>
                   </div>
                   <p className="text-xs text-text-secondary truncate">{evt.venue}</p>
                   <p className="text-xs text-text-muted mt-1">Date: {formatDate(evt.eventDate)}</p>
@@ -1925,22 +2181,119 @@ function AdminEvents() {
                   <Link to={`/event/${evt.id}`}>
                     <Button variant="secondary" size="sm" icon={Eye}>View Page</Button>
                   </Link>
-                  {!isEnded && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
-                      onClick={() => handleCloseEvent(evt.id, evt.name)}
-                    >
-                      End & Archive
-                    </Button>
-                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
+                    onClick={() => handleCloseEvent(evt.id, evt.name)}
+                  >
+                    End &amp; Archive
+                  </Button>
                 </div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── TAB 3: ENDED / CONCLUDED ── */}
+      {activeTab === 'ended' && (
+        <div className="space-y-3">
+          {endedEvents.map(evt => (
+            <div key={evt.id} className="card p-4 sm:p-5 opacity-80">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <h3 className="text-sm font-semibold truncate">{evt.name}</h3>
+                    <Badge variant="neutral">Ended (Historical Record)</Badge>
+                  </div>
+                  <p className="text-xs text-text-secondary truncate">{evt.venue}</p>
+                  <p className="text-xs text-text-muted mt-1">Date: {formatDate(evt.eventDate)}</p>
+                </div>
+
+                <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                  <Link to={`/event/${evt.id}`}>
+                    <Button variant="secondary" size="sm" icon={Eye}>Audit Records</Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── MODAL: EDIT BANK DETAILS ── */}
+      {bankModalEvent && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="neu-card p-6 rounded-3xl max-w-md w-full space-y-4" style={{ backgroundColor: 'var(--card-bg)' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-text-primary">
+                Update Organizer Bank Details
+              </h3>
+              <button onClick={() => setBankModalEvent(null)} className="text-text-muted hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Updates to bank details will update the Paystack subaccount settlement settings and are permanently logged to the bank change audit log.
+            </p>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1 text-text-secondary">
+                Select Bank
+              </label>
+              <select
+                value={modalBankCode}
+                onChange={(e) => {
+                  setModalBankCode(e.target.value);
+                  const b = banksList.find(x => x.code === e.target.value);
+                  if (b) setModalBankName(b.name);
+                }}
+                className="neu-input w-full"
+              >
+                {banksList.map(b => (
+                  <option key={b.code} value={b.code}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1 text-text-secondary">
+                Account Number (10 digits)
+              </label>
+              <input
+                type="text"
+                maxLength={10}
+                value={modalAccountNumber}
+                onChange={(e) => setModalAccountNumber(e.target.value.replace(/\D/g, ''))}
+                className="neu-input w-full font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1 text-text-secondary">
+                Account Name
+              </label>
+              <input
+                type="text"
+                value={modalAccountName}
+                onChange={(e) => setModalAccountName(e.target.value)}
+                className="neu-input w-full"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setBankModalEvent(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" className="flex-1" onClick={handleSaveBankDetails}>
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1980,17 +2333,81 @@ function AdminPayouts() {
 }
 
 function AdminSettings() {
-  const [settings, setSettings] = useState({ platformFeePercent: 5, monnifyFeeRate: 1.5, monnifyFeeCap: 2000, vatRate: 7.5, paymentWindowMinutes: 20 });
+  const [feePercent, setFeePercent] = useState(5.0);
+  const [feeBearer, setFeeBearer] = useState<'organizer' | 'platform'>('organizer');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.admin.getSettings().then(s => {
+      if (s?.fee_percent != null) setFeePercent(Number(s.fee_percent));
+      if (s?.fee_bearer) setFeeBearer(s.fee_bearer);
+    }).catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.admin.updateSettings({
+        fee_percent: feePercent,
+        fee_bearer: feeBearer,
+      });
+      showToast('Settings saved & logged to audit table!', 'success');
+    } catch (e: any) {
+      showToast(e.message || 'Failed to save settings', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div>
-      <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Settings</h1>
-      <div className="card p-4 sm:p-6 max-w-xl space-y-4">
-        <Input label="Platform Fee (%)" type="number" value={settings.platformFeePercent.toString()} onChange={(v) => setSettings({ ...settings, platformFeePercent: Number(v) })} />
-        <Input label="Monnify Fee Rate (%)" type="number" value={settings.monnifyFeeRate.toString()} onChange={(v) => setSettings({ ...settings, monnifyFeeRate: Number(v) })} />
-        <Input label="Fee Cap (NGN)" type="number" value={settings.monnifyFeeCap.toString()} onChange={(v) => setSettings({ ...settings, monnifyFeeCap: Number(v) })} />
-        <Input label="VAT Rate (%)" type="number" value={settings.vatRate.toString()} onChange={(v) => setSettings({ ...settings, vatRate: Number(v) })} />
-        <Input label="Payment Window (min)" type="number" value={settings.paymentWindowMinutes.toString()} onChange={(v) => setSettings({ ...settings, paymentWindowMinutes: Number(v) })} />
-        <Button onClick={() => showToast('Settings saved', 'success')}>Save Settings</Button>
+      <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Platform Payment &amp; Split Settings</h1>
+      <div className="card p-4 sm:p-6 max-w-xl space-y-5">
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-text-secondary">
+            Platform Service Fee (%)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="100"
+            value={feePercent}
+            onChange={(e) => setFeePercent(parseFloat(e.target.value) || 0)}
+            className="neu-input w-full font-bold text-base"
+          />
+          <p className="text-[11px] text-text-muted mt-1">
+            Percentage deducted by TiKeTi on every ticket checkout via Paystack split payments. Default: 5.0%.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-text-secondary">
+            Paystack Transaction Fee Bearer
+          </label>
+          <select
+            value={feeBearer}
+            onChange={(e) => setFeeBearer(e.target.value as 'organizer' | 'platform')}
+            className="neu-input w-full font-medium"
+          >
+            <option value="organizer">Event Organizer bears transaction fee</option>
+            <option value="platform">TiKeTi Platform bears transaction fee</option>
+          </select>
+          <p className="text-[11px] text-text-muted mt-1">
+            Determines who absorbs Paystack's gateway processing charge.
+          </p>
+        </div>
+
+        <div className="p-3.5 rounded-xl neu-card-inset text-xs text-text-secondary space-y-1">
+          <p className="font-semibold text-text-primary">Audit Log Protected</p>
+          <p className="text-[11px] text-text-muted">
+            All modifications to the platform fee percentage are permanently recorded in the <code>fee_percent_log</code> audit table with timestamp and admin ID.
+          </p>
+        </div>
+
+        <Button variant="primary" loading={saving} onClick={handleSave} className="w-full">
+          Save Settings
+        </Button>
       </div>
     </div>
   );
@@ -2077,7 +2494,7 @@ function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/events"><Button size="lg" variant="primary" icon={ShoppingBag}>See Live Events & Buy Tickets</Button></Link>
-              <Link to="/owner"><Button size="lg" variant="secondary" icon={Calendar}>Event Planner</Button></Link>
+              <Link to="/owner"><Button size="lg" variant="secondary" icon={Calendar}>Event Organizer</Button></Link>
             </div>
           </div>
 
@@ -2130,13 +2547,13 @@ function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12 sm:mb-16">
             <h2 className="text-2xl sm:text-3xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>How TiKeTi Works</h2>
-            <p className="text-sm sm:text-base max-w-lg mx-auto" style={{ color: 'var(--text-secondary)' }}>Register as an event planner, set up your event &amp; tickets, invite models and gate verifiers.</p>
+            <p className="text-sm sm:text-base max-w-lg mx-auto" style={{ color: 'var(--text-secondary)' }}>Register as an event organizer, set up your event &amp; tickets, invite models and gate verifiers.</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {[
-              { step: '01', title: 'Event Planner', desc: 'Register, set up your event and ticket types with gender pricing, invite models and gate verifiers.', icon: Calendar, link: '/register', linkLabel: 'Register Now' },
-              { step: '02', title: 'Models & Gate Staff', desc: 'Get invited by the planner. Confirm via email link, create your password and access your dashboard.', icon: Users, link: '/login', linkLabel: 'Sign In' },
+              { step: '01', title: 'Event Organizer', desc: 'Register, set up your event and ticket types with gender pricing, invite models and gate verifiers.', icon: Calendar, link: '/register', linkLabel: 'Register Now' },
+              { step: '02', title: 'Models & Gate Staff', desc: 'Get invited by the organizer. Confirm via email link, create your password and access your dashboard.', icon: Users, link: '/login', linkLabel: 'Sign In' },
               { step: '03', title: 'Buyers', desc: 'Browse events, buy tickets via model links or directly. Get a QR ticket instantly after payment.', icon: ShoppingBag, link: '/events', linkLabel: 'Browse Events' },
             ].map((item, i) => (
               <NeuCard key={i} className="p-6 sm:p-8 animate-fade-up" delay={i * 100}>
@@ -2199,11 +2616,11 @@ function LandingPage() {
                   <div className="neu-card-inset w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <Calendar size={28} style={{ color: 'var(--accent)' }} />
                   </div>
-                  <h3 className="text-base font-bold mb-1.5" style={{ color: 'var(--text-primary)' }}>Event Planner</h3>
-                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Create & manage your events</p>
+                  <h3 className="text-base font-bold mb-1.5" style={{ color: 'var(--text-primary)' }}>Event Organizer</h3>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Create &amp; manage your events</p>
                 </div>
                 <div className="mt-4 flex items-center justify-center gap-1 text-xs font-semibold" style={{ color: 'var(--accent)' }}>
-                  <span>Open Planner</span>
+                  <span>Open Organizer</span>
                   <ArrowRight size={12} />
                 </div>
               </NeuCard>
@@ -2272,7 +2689,7 @@ function LandingPage() {
             </div>
             
             <div className="flex items-center flex-wrap justify-center gap-5 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-              <Link to="/owner" className="hover:text-accent">Event Planner</Link>
+              <Link to="/owner" className="hover:text-accent">Event Organizer</Link>
               <Link to="/events" className="hover:text-accent">Live Events</Link>
               <Link to="/model" className="hover:text-accent">Model Ambassador</Link>
               <Link to="/verify" className="hover:text-accent">Gate Verify</Link>
@@ -2360,7 +2777,7 @@ function CreateEventForm() {
             One Event = One Account
           </h1>
           <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-            In TiKeTi, each planner account manages exactly <strong>one event</strong> to ensure clean financial settlements, independent ticket tiers, model ambassador tracking, and gate staff verification.
+            In TiKeTi, each organizer account manages exactly <strong>one event</strong> to ensure clean financial settlements, independent ticket tiers, model ambassador tracking, and gate staff verification.
           </p>
           <div className="p-3.5 rounded-xl neu-card-inset text-xs text-text-secondary text-left space-y-1 border border-accent/20">
             <p className="font-semibold text-text-primary">Want to host another event?</p>
@@ -3117,7 +3534,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
-        <Route path="/register" element={<EventPlannerRegistration />} />
+        <Route path="/register" element={<EventOrganizerRegistration />} />
         <Route path="/invite" element={<InviteConfirmPage />} />
         {/* Admin (Protected by AdminGuard) */}
         <Route path="/admin" element={<AdminGuard><AppLayout role="admin"><AdminDashboard /></AppLayout></AdminGuard>} />
@@ -3127,23 +3544,23 @@ export default function App() {
         <Route path="/admin/payouts" element={<AdminGuard><AppLayout role="admin"><AdminPayouts /></AppLayout></AdminGuard>} />
         <Route path="/admin/settings" element={<AdminGuard><AppLayout role="admin"><AdminSettings /></AppLayout></AdminGuard>} />
         <Route path="/admin/audit" element={<AdminGuard><AppLayout role="admin"><AdminAudit /></AppLayout></AdminGuard>} />
-        {/* Event Planner */}
-        <Route path="/owner" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerDashboard /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerEvents /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events/new" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><CreateEventForm /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events/:eventId" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerEventDetail /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events/:eventId/tickets/new" element={<RoleGuard roles={['planner','owner']}><TicketTypeForm /></RoleGuard>} />
-        <Route path="/owner/events/:eventId/checkins" element={<RoleGuard roles={['planner','owner']}><CheckInHistory /></RoleGuard>} />
-        <Route path="/owner/models" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerModels /></AppLayout></RoleGuard>} />
-        <Route path="/owner/models/invite" element={<RoleGuard roles={['planner','owner']}><ModelInviteForm /></RoleGuard>} />
-        <Route path="/owner/staff" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerStaff /></AppLayout></RoleGuard>} />
-        <Route path="/owner/staff/new" element={<RoleGuard roles={['planner','owner']}><StaffInviteForm /></RoleGuard>} />
-        <Route path="/owner/earnings" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerEarnings /></AppLayout></RoleGuard>} />
-        <Route path="/owner/settings" element={<RoleGuard roles={['planner','owner']}><AppLayout role="owner"><OwnerSettings /></AppLayout></RoleGuard>} />
+        {/* Event Organizer */}
+        <Route path="/owner" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerDashboard /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerEvents /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events/new" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><CreateEventForm /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events/:eventId" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerEventDetail /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events/:eventId/tickets/new" element={<RoleGuard roles={['organizer','planner','owner']}><TicketTypeForm /></RoleGuard>} />
+        <Route path="/owner/events/:eventId/checkins" element={<RoleGuard roles={['organizer','planner','owner']}><CheckInHistory /></RoleGuard>} />
+        <Route path="/owner/models" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerModels /></AppLayout></RoleGuard>} />
+        <Route path="/owner/models/invite" element={<RoleGuard roles={['organizer','planner','owner']}><ModelInviteForm /></RoleGuard>} />
+        <Route path="/owner/staff" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerStaff /></AppLayout></RoleGuard>} />
+        <Route path="/owner/staff/new" element={<RoleGuard roles={['organizer','planner','owner']}><StaffInviteForm /></RoleGuard>} />
+        <Route path="/owner/earnings" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerEarnings /></AppLayout></RoleGuard>} />
+        <Route path="/owner/settings" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerSettings /></AppLayout></RoleGuard>} />
         {/* Model & Gate */}
         <Route path="/model" element={<RoleGuard roles={['model']}><ModelDashboard /></RoleGuard>} />
-        <Route path="/verify" element={<RoleGuard roles={['gate','planner','owner']}><VerificationPage /></RoleGuard>} />
-        <Route path="/verify/:eventId" element={<RoleGuard roles={['gate','planner','owner']}><VerificationPage /></RoleGuard>} />
+        <Route path="/verify" element={<RoleGuard roles={['gate','organizer','planner','owner']}><VerificationPage /></RoleGuard>} />
+        <Route path="/verify/:eventId" element={<RoleGuard roles={['gate','organizer','planner','owner']}><VerificationPage /></RoleGuard>} />
         {/* Buyer / Public */}
         <Route path="/events" element={<LiveEventsPage />} />
         <Route path="/event/:eventId" element={<PublicEventPage />} />

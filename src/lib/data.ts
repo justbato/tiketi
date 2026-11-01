@@ -137,8 +137,8 @@ export interface AuditLog {
 
 export interface PlatformSettings {
   platformFeePercent: number;
-  monnifyFeeRate: number;
-  monnifyFeeCap: number;
+  processingFeeRate: number;
+  processingFeeCap: number;
   vatRate: number;
   paymentWindowMinutes: number;
   announcementBanner: string;
@@ -147,8 +147,8 @@ export interface PlatformSettings {
 // Mock data
 export const mockSettings: PlatformSettings = {
   platformFeePercent: 5,
-  monnifyFeeRate: 1.5,
-  monnifyFeeCap: 2000,
+  processingFeeRate: 1.5,
+  processingFeeCap: 2000,
   vatRate: 7.5,
   paymentWindowMinutes: 20,
   announcementBanner: '',

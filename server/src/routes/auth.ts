@@ -7,16 +7,18 @@ import { signToken } from '../utils/jwt.js';
 import { requireAuth, loginRateLimit, resetLoginRateLimit } from '../middleware/auth.js';
 import { sanitizeString } from '../middleware/validation.js';
 import { supabase } from '../index.js';
+import { listBanks, resolveAccountName } from '../services/paystack.js';
 
 // =============================================
 // SCHEMAS
 // =============================================
 
-const plannerLoginSchema = z.object({
+const organizerLoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6).max(128),
-  role: z.literal('planner'),
-  account_id: z.string().uuid().optional()
+  role: z.enum(['organizer', 'planner']),
+  account_id: z.string().uuid().optional(),
+  event_id: z.string().uuid().optional(),
 });
 
 const modelLoginSchema = z.object({
@@ -38,22 +40,18 @@ const adminLoginSchema = z.object({
 });
 
 const loginSchema = z.discriminatedUnion('role', [
-  plannerLoginSchema,
+  organizerLoginSchema,
   modelLoginSchema,
   gateLoginSchema,
   adminLoginSchema,
 ]);
 
-const plannerRegisterSchema = z.object({
-  party_type: z.enum(['campus', 'off_campus']),
-  university: z.string().optional(),
-  state: z.string().optional(),
-  location: z.string().optional(),
+const organizerRegisterSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email().max(254),
-  whatsapp_number: z.string().min(10).max(20),
   password: z.string().min(8).max(128),
   bank_name: z.string().min(2).max(100),
+  bank_code: z.string().min(1).max(20).optional(),
   account_number: z.string().min(10).max(20),
   account_name: z.string().min(2).max(100),
 });
@@ -70,41 +68,110 @@ const adminLoginDedicatedSchema = z.object({
   totp_code: z.string().optional()
 });
 
+// Helper to query event_organizers with fallback to event_planners
+async function getOrganizersByEmail(email: string) {
+  let { data, error } = await supabase
+    .from('event_organizers')
+    .select('*, events(id, name, status, event_date)')
+    .eq('email', email);
+
+  if (error) {
+    const fallback = await supabase
+      .from('event_planners')
+      .select('*, events(id, name, status, event_date)')
+      .eq('email', email);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  return { data, error };
+}
+
 // =============================================
 // ROUTES
 // =============================================
 
 export const authRoutes = new Hono<AppEnv>();
 
-// ── Lookup event accounts by email ──
+// ── Paystack Banks list (public for registration/payout) ──
+authRoutes.get('/banks', async (c) => {
+  try {
+    const banks = await listBanks();
+    return c.json({ banks });
+  } catch (err: any) {
+    console.error('Failed to list banks from Paystack:', err.message);
+    // Fallback static list if network/Paystack key issue
+    return c.json({
+      banks: [
+        { id: 1, name: 'Access Bank', code: '044' },
+        { id: 2, name: 'Zenith Bank', code: '057' },
+        { id: 3, name: 'Guaranty Trust Bank (GTBank)', code: '058' },
+        { id: 4, name: 'First Bank of Nigeria', code: '011' },
+        { id: 5, name: 'United Bank for Africa (UBA)', code: '033' },
+        { id: 6, name: 'Fidelity Bank', code: '070' },
+        { id: 7, name: 'Union Bank of Nigeria', code: '032' },
+        { id: 8, name: 'Stanbic IBTC Bank', code: '221' },
+        { id: 9, name: 'Sterling Bank', code: '232' },
+        { id: 10, name: 'Polaris Bank', code: '076' },
+        { id: 11, name: 'Kuda Bank', code: '50211' },
+        { id: 12, name: 'Opay (Paycom)', code: '999992' },
+        { id: 13, name: 'PalmPay', code: '999991' },
+        { id: 14, name: 'Moniepoint MFB', code: '50515' },
+      ]
+    });
+  }
+});
+
+// ── Paystack Resolve Account Name (public) ──
+authRoutes.get('/resolve-account', async (c) => {
+  const account_number = c.req.query('account_number');
+  const bank_code = c.req.query('bank_code');
+
+  if (!account_number || !bank_code) {
+    return c.json({ error: 'account_number and bank_code are required' }, 400);
+  }
+
+  try {
+    const account_name = await resolveAccountName(account_number.trim(), bank_code.trim());
+    return c.json({ account_name });
+  } catch (err: any) {
+    return c.json({ error: err.message || 'Could not resolve account name' }, 400);
+  }
+});
+
+// ── Lookup event accounts by email (RETURNS ONLY event_id and event_name) ──
 authRoutes.get('/accounts', async (c) => {
   const email = c.req.query('email');
   if (!email) return c.json({ accounts: [] });
 
   const sanitizedEmail = sanitizeString(email).toLowerCase();
+  const { data: organizers, error } = await getOrganizersByEmail(sanitizedEmail);
 
-  const { data: planners, error } = await supabase
-    .from('event_planners')
-    .select('*, events(id, name, status, event_date)')
-    .eq('email', sanitizedEmail);
+  if (error || !organizers) return c.json({ accounts: [] });
 
-  if (error || !planners) return c.json({ accounts: [] });
+  // Strictly return only non-sensitive event identifiers
+  const accounts: any[] = [];
+  for (const p of organizers) {
+    if (Array.isArray(p.events) && p.events.length > 0) {
+      for (const ev of p.events) {
+        accounts.push({
+          id: p.id,
+          event_id: ev.id,
+          event_name: ev.name || p.name || 'Unnamed Event',
+          status: p.status,
+        });
+      }
+    } else {
+      accounts.push({
+        id: p.id,
+        event_id: null,
+        event_name: p.name || 'Unnamed Event',
+        status: p.status,
+      });
+    }
+  }
 
-  return c.json({
-    accounts: planners.map(p => ({
-      id: p.id,
-      email: p.email,
-      name: p.name,
-      status: p.status,
-      event_name: p.events?.[0]?.name || p.name,
-      event_id: p.events?.[0]?.id,
-      created_at: p.created_at,
-      whatsapp_number: p.whatsapp_number,
-      bank_name: p.bank_name,
-      account_number: p.account_number,
-      account_name: p.account_name,
-    }))
-  });
+  return c.json({ accounts });
 });
 
 // ── Unified Login (with brute-force protection) ──
@@ -119,19 +186,16 @@ authRoutes.post('/login', loginRateLimit, async (c) => {
 
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
 
-  if (body.role === 'planner') {
-    const { data: planners, error } = await supabase
-      .from('event_planners')
-      .select('*, events(id, name, status, event_date)')
-      .eq('email', body.email.toLowerCase());
+  if (body.role === 'organizer' || body.role === 'planner') {
+    const { data: organizers, error } = await getOrganizersByEmail(body.email.toLowerCase());
 
-    if (error || !planners || planners.length === 0) {
+    if (error || !organizers || organizers.length === 0) {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
     // Check passwords for matching accounts
     const matching = [];
-    for (const p of planners) {
+    for (const p of organizers) {
       const valid = await bcrypt.compare(body.password, p.password_hash);
       if (valid) matching.push(p);
     }
@@ -140,60 +204,81 @@ authRoutes.post('/login', loginRateLimit, async (c) => {
       return c.json({ error: 'Invalid credentials' }, 401);
     }
 
-    // If user specified account_id
-    let selectedPlanner = matching[0];
+    // If user specified account_id or event_id
+    let selectedOrganizer = matching[0];
     const reqAccountId = 'account_id' in body ? body.account_id : undefined;
+    const reqEventId = 'event_id' in body ? body.event_id : undefined;
 
     if (reqAccountId) {
       const found = matching.find(p => p.id === reqAccountId);
       if (!found) return c.json({ error: 'Event account not found' }, 404);
-      selectedPlanner = found;
+      selectedOrganizer = found;
+    } else if (reqEventId) {
+      const found = matching.find(p => p.events?.some((e: any) => e.id === reqEventId));
+      if (!found) return c.json({ error: 'Event not found for this account' }, 404);
+      selectedOrganizer = found;
     } else if (matching.length > 1) {
-      // Reset rate limit on successful password match
       resetLoginRateLimit(ip);
+      const accounts: any[] = [];
+      for (const p of matching) {
+        if (Array.isArray(p.events) && p.events.length > 0) {
+          for (const ev of p.events) {
+            accounts.push({
+              id: p.id,
+              event_id: ev.id,
+              event_name: ev.name || p.name,
+              status: p.status,
+            });
+          }
+        } else {
+          accounts.push({
+            id: p.id,
+            event_id: null,
+            event_name: p.name,
+            status: p.status,
+          });
+        }
+      }
       return c.json({
         multiple: true,
-        accounts: matching.map(p => ({
-          id: p.id,
-          email: p.email,
-          name: p.name,
-          status: p.status,
-          event_name: p.events?.[0]?.name || p.name,
-          event_id: p.events?.[0]?.id,
-          created_at: p.created_at,
-        }))
+        accounts
       });
     }
 
-    if (selectedPlanner.status === 'deactivated') {
+    if (selectedOrganizer.status === 'deactivated') {
       return c.json({
         error: 'This event account has ended and was closed by the administrator. Access to this dashboard is no longer available.'
       }, 403);
     }
-    if (selectedPlanner.status === 'suspended') {
+    if (selectedOrganizer.status === 'suspended') {
       return c.json({ error: 'Account suspended' }, 403);
     }
 
-    // Reset rate limit on successful login
     resetLoginRateLimit(ip);
 
+    const matchingEvent = reqEventId
+      ? selectedOrganizer.events?.find((e: any) => e.id === reqEventId)
+      : selectedOrganizer.events?.[0];
+    const activeEventId = matchingEvent?.id || null;
+    const activeEventName = matchingEvent?.name || selectedOrganizer.name;
+
     const token = await signToken({ 
-      id: selectedPlanner.id, 
-      email: selectedPlanner.email, 
-      role: 'planner' 
+      id: selectedOrganizer.id, 
+      email: selectedOrganizer.email, 
+      role: 'organizer',
+      event_id: activeEventId
     });
     
     return c.json({
       token,
       user: {
-        id: selectedPlanner.id,
-        email: selectedPlanner.email,
-        name: selectedPlanner.name,
-        role: 'planner',
-        status: selectedPlanner.status,
-        whatsapp: selectedPlanner.whatsapp_number,
-        event_id: selectedPlanner.events?.[0]?.id,
-        event_name: selectedPlanner.events?.[0]?.name,
+        id: selectedOrganizer.id,
+        email: selectedOrganizer.email,
+        name: selectedOrganizer.name,
+        role: 'organizer',
+        status: selectedOrganizer.status,
+        event_id: activeEventId,
+        event_name: activeEventName,
       }
     });
   }
@@ -389,66 +474,70 @@ authRoutes.post('/admin/login', loginRateLimit, async (c) => {
   });
 });
 
-// ── Event Planner Registration ──
-authRoutes.post('/register/planner', async (c) => {
-  let body: z.infer<typeof plannerRegisterSchema>;
+// ── Event Organizer Registration Handler (No KYC, multi-event email/account allowed) ──
+async function handleOrganizerRegister(c: any) {
+  let body: z.infer<typeof organizerRegisterSchema>;
   
   try {
-    body = plannerRegisterSchema.parse(await c.req.json());
-  } catch {
-    return c.json({ error: 'Invalid request body' }, 400);
+    body = organizerRegisterSchema.parse(await c.req.json());
+  } catch (err: any) {
+    return c.json({ error: 'Invalid request body', details: err?.errors }, 400);
   }
 
-  // Validate location fields
-  if (body.party_type === 'campus' && !body.university) {
-    return c.json({ error: 'University is required for campus parties' }, 400);
-  }
-  if (body.party_type === 'off_campus' && (!body.state || !body.location)) {
-    return c.json({ error: 'State and location are required for off-campus parties' }, 400);
-  }
+  const passwordHash = await bcrypt.hash(body.password, 12);
 
-  const passwordHash = await bcrypt.hash(body.password, 12); // Increased cost factor
+  const insertData = {
+    email: body.email.toLowerCase(),
+    password_hash: passwordHash,
+    name: sanitizeString(body.name),
+    bank_name: sanitizeString(body.bank_name),
+    bank_code: body.bank_code || null,
+    account_number: body.account_number.trim(),
+    account_name: sanitizeString(body.account_name),
+    status: 'active'
+  };
 
-  const { data: planner, error } = await supabase
-    .from('event_planners')
-    .insert({
-      email: body.email.toLowerCase(),
-      password_hash: passwordHash,
-      name: sanitizeString(body.name),
-      whatsapp_number: body.whatsapp_number,
-      party_type: body.party_type,
-      university: body.university || null,
-      state: body.state || null,
-      location: body.location || null,
-      bank_name: sanitizeString(body.bank_name),
-      account_number: body.account_number,
-      account_name: sanitizeString(body.account_name),
-      status: 'active'
-    })
+  let { data: organizer, error } = await supabase
+    .from('event_organizers')
+    .insert(insertData)
     .select()
     .single();
 
-  if (error || !planner) {
+  if (error) {
+    // Fallback if table name is still event_planners
+    const fallback = await supabase
+      .from('event_planners')
+      .insert(insertData)
+      .select()
+      .single();
+    organizer = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error || !organizer) {
     console.error('Registration error:', error);
     return c.json({ error: 'Registration failed' }, 500);
   }
 
   const token = await signToken({ 
-    id: planner.id, 
-    email: planner.email, 
-    role: 'planner' 
+    id: organizer.id, 
+    email: organizer.email, 
+    role: 'organizer' 
   });
 
   return c.json({
     token,
     user: { 
-      id: planner.id, 
-      email: planner.email, 
-      name: planner.name, 
-      role: 'planner' 
+      id: organizer.id, 
+      email: organizer.email, 
+      name: organizer.name, 
+      role: 'organizer' 
     }
   }, 201);
-});
+}
+
+authRoutes.post('/register/organizer', handleOrganizerRegister);
+authRoutes.post('/register/planner', handleOrganizerRegister);
 
 // ── Confirm Invite & Set Password ──
 authRoutes.post('/confirm-invite', async (c) => {
@@ -518,7 +607,6 @@ authRoutes.get('/verify', requireAuth, async (c) => {
 authRoutes.get('/invite/:token', async (c) => {
   const { token } = c.req.param();
 
-  // Check models table first
   const { data: model } = await supabase
     .from('models')
     .select('id, name, email, invite_confirmed_at, event_id')
@@ -532,7 +620,6 @@ authRoutes.get('/invite/:token', async (c) => {
     return c.json({ role: 'model', name: model.name, email: model.email });
   }
 
-  // Check gate_staff table
   const { data: staff } = await supabase
     .from('gate_staff')
     .select('id, name, email, invite_confirmed_at, event_id')

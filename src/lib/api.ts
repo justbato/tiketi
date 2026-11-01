@@ -25,8 +25,6 @@ export interface StoredPlannerAccount {
   name: string;
   eventId?: string;
   eventName?: string;
-  whatsapp_number?: string;
-  party_type?: 'campus' | 'off_campus';
   status: 'active' | 'suspended' | 'deactivated';
   created_at: string;
 }
@@ -171,6 +169,42 @@ export function saveStoredTicketTypes(tickets: TicketType[]) {
 export const api = {
   // Auth
   auth: {
+    async getBanks(): Promise<{ id: number; name: string; code: string }[]> {
+      try {
+        const res = await fetch(`${API_BASE}/auth/banks`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.banks)) return data.banks;
+        }
+      } catch {}
+      return [
+        { id: 1, name: 'Access Bank', code: '044' },
+        { id: 2, name: 'Zenith Bank', code: '057' },
+        { id: 3, name: 'Guaranty Trust Bank (GTBank)', code: '058' },
+        { id: 4, name: 'First Bank of Nigeria', code: '011' },
+        { id: 5, name: 'United Bank for Africa (UBA)', code: '033' },
+        { id: 6, name: 'Fidelity Bank', code: '070' },
+        { id: 7, name: 'Union Bank of Nigeria', code: '032' },
+        { id: 8, name: 'Stanbic IBTC Bank', code: '221' },
+        { id: 9, name: 'Sterling Bank', code: '232' },
+        { id: 10, name: 'Polaris Bank', code: '076' },
+        { id: 11, name: 'Kuda Bank', code: '50211' },
+        { id: 12, name: 'Opay (Paycom)', code: '999992' },
+        { id: 13, name: 'PalmPay', code: '999991' },
+        { id: 14, name: 'Moniepoint MFB', code: '50515' },
+      ];
+    },
+
+    async resolveAccount(accountNumber: string, bankCode: string): Promise<string> {
+      const res = await fetch(`${API_BASE}/auth/resolve-account?account_number=${encodeURIComponent(accountNumber.trim())}&bank_code=${encodeURIComponent(bankCode.trim())}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Could not verify account name');
+      }
+      const data = await res.json();
+      return data.account_name;
+    },
+
     async getAccountsByEmail(email: string): Promise<any[]> {
       const clean = email.trim().toLowerCase();
       if (!clean || !clean.includes('@')) return [];
@@ -187,23 +221,15 @@ export const api = {
       return planners
         .filter(p => p.email.toLowerCase() === clean)
         .map(p => ({
+          // SECURITY: never expose bank details in email lookup
           id: p.id,
-          email: p.email,
-          name: p.name,
-          status: p.status,
-          eventName: p.eventName || 'Event Account',
+          event_id: p.eventId || null,
           event_name: p.eventName || 'Event Account',
-          eventId: p.eventId,
-          event_id: p.eventId,
-          created_at: p.created_at,
-          bank_name: (p as any).bank_name,
-          account_number: (p as any).account_number,
-          account_name: (p as any).account_name,
-          whatsapp_number: p.whatsapp_number,
+          status: p.status,
         }));
     },
 
-    async login(email: string, password: string, role: 'planner' | 'model' | 'gate' | 'admin' = 'planner', accountId?: string) {
+    async login(email: string, password: string, role: 'organizer' | 'planner' | 'model' | 'gate' | 'admin' = 'organizer', accountId?: string) {
       try {
         const res = await fetch(`${API_BASE}/auth/login`, {
           method: 'POST',
@@ -216,7 +242,7 @@ export const api = {
         }
         const data = await res.json();
         if (data.multiple) {
-          return data; // Multiple accounts for planner, return for selection
+          return data; // Multiple accounts for organizer, return for selection
         }
         if (data.token) {
           localStorage.setItem('token', data.token);
@@ -230,26 +256,21 @@ export const api = {
       }
     },
 
-    async registerPlanner(plannerData: {
-      party_type: 'campus' | 'off_campus';
-      university?: string;
-      state?: string;
-      location?: string;
+    async registerOrganizer(organizerData: {
       name: string;
       email: string;
-      whatsapp_number: string;
       password: string;
       bank_name: string;
+      bank_code?: string;
       account_number: string;
       account_name: string;
       eventName?: string;
-      eventId?: string;
     }) {
       try {
-        const res = await fetch(`${API_BASE}/auth/register/planner`, {
+        const res = await fetch(`${API_BASE}/auth/register/organizer`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(plannerData),
+          body: JSON.stringify(organizerData),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -258,7 +279,7 @@ export const api = {
         const data = await res.json();
         if (data.token) {
           localStorage.setItem('token', data.token);
-          localStorage.setItem('tiketi_role', 'planner');
+          localStorage.setItem('tiketi_role', 'organizer');
           if (data.user) localStorage.setItem('tiketi_user', JSON.stringify(data.user));
         }
         return data;
@@ -267,6 +288,8 @@ export const api = {
         throw new Error('Cannot reach the server. Please try again.');
       }
     },
+
+    // registerPlanner is deprecated - use registerOrganizer instead (KYC removed)
 
     async confirmInvite(token: string, password: string, role: 'model' | 'gate') {
       try {
@@ -332,7 +355,7 @@ export const api = {
     },
 
     getCurrentRole(): string {
-      return localStorage.getItem('tiketi_role') || 'planner';
+      return localStorage.getItem('tiketi_role') || 'organizer';
     }
   },
 
@@ -775,6 +798,16 @@ export const api = {
       return { status: 'paid', paid: true, expired: false };
     },
 
+    async verifyPayment(reference: string) {
+      try {
+        const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(reference)}/verify-payment`, {
+          method: 'POST',
+        });
+        if (res.ok) return await res.json();
+      } catch (e) {}
+      return null;
+    },
+
     async getOrderTickets(reference: string, email: string): Promise<{ order: any; tickets: any[] } | null> {
       if (!email.trim()) return null; // email is required
 
@@ -906,7 +939,80 @@ export const api = {
 
   // Admin
   admin: {
-    async deactivatePlanner(plannerId: string) {
+    async getPendingEvents() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/events/pending`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          return data.events || [];
+        }
+      } catch (e) {}
+      return [];
+    },
+
+    async approveEvent(eventId: string) {
+      const res = await fetch(`${API_BASE}/admin/events/${eventId}/approve`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to approve event');
+      }
+      return await res.json();
+    },
+
+    async rejectEvent(eventId: string, reason?: string) {
+      const res = await fetch(`${API_BASE}/admin/events/${eventId}/reject`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to reject event');
+      }
+      return await res.json();
+    },
+
+    async updateEventBankDetails(eventId: string, bankDetails: { bank_name: string; bank_code: string; account_number: string; account_name: string }) {
+      const res = await fetch(`${API_BASE}/admin/events/${eventId}/bank-details`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(bankDetails),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update bank details');
+      }
+      return await res.json();
+    },
+
+    async getSettings() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/settings`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          return data.settings || {};
+        }
+      } catch (e) {}
+      return { fee_percent: 5.0, fee_bearer: 'organizer' };
+    },
+
+    async updateSettings(settings: { fee_percent?: number; fee_bearer?: string; announcement_banner?: string }) {
+      const res = await fetch(`${API_BASE}/admin/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(settings),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update settings');
+      }
+      return await res.json();
+    },
+
+    async deactivateOrganizer(plannerId: string) {
       try {
         const res = await fetch(`${API_BASE}/admin/owners/${plannerId}/deactivate`, {
           method: 'PUT',
@@ -945,6 +1051,10 @@ export const api = {
       }
 
       return { success: true };
+    },
+
+    async deactivatePlanner(plannerId: string) {
+      return this.deactivateOrganizer(plannerId);
     }
   }
 };

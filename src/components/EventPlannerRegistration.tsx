@@ -3,8 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Check, MapPin, Building2,
   Upload, ImageIcon, Plus, Trash2, X, User, Mail,
-  Phone, Lock, CreditCard, ChevronDown, Info, GraduationCap, Compass,
-  Eye, EyeOff
+  Lock, CreditCard, ChevronDown, Info, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2
 } from 'lucide-react';
 import { Ticket as TIcon } from 'lucide-react';
 import { Button, Input, showToast } from './ui';
@@ -13,51 +12,13 @@ import { api } from '../lib/api';
 // =============================================
 // DATA
 // =============================================
-const NIGERIAN_UNIVERSITIES = [
-  'Federal University of Technology, Owerri (FUTO)',
-  'University of Lagos (UNILAG)',
-  'University of Ibadan (UI)',
-  'Obafemi Awolowo University (OAU)',
-  'University of Nigeria, Nsukka (UNN)',
-  'Ahmadu Bello University (ABU)',
-  'University of Benin (UNIBEN)',
-  'University of Port Harcourt (UNIPORT)',
-  'Covenant University',
-  'Babcock University',
-  'Lagos State University (LASU)',
-  'Yaba College of Technology (YABATECH)',
-  'Lagos State Polytechnic',
-  'Federal University of Technology, Akure (FUTA)',
-  'Federal University of Technology, Minna (FUTMINNA)',
-  'University of Calabar (UNICAL)',
-  'University of Ilorin (UNILORIN)',
-  'Nnamdi Azikiwe University (NAU)',
-  'University of Maiduguri (UNIMAID)',
-  'Bayero University Kano (BUK)',
-  'Rivers State University (RSU)',
-  'Delta State University (DELSU)',
-  'Imo State University (IMSU)',
-].sort();
-
-const NIGERIAN_STATES = [
-  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi',
-  'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta',
-  'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT (Abuja)',
-  'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano',
-  'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos',
-  'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun',
-  'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba',
-  'Yobe', 'Zamfara',
-];
-
 const TICKET_TIERS = [
   'VIP', 'Regular', 'Early Bird', 'Table', 'VVIP', 'Gold', 'Silver', 'Bronze', 'Couple'
 ];
 
-const BANKS = [
-  'Access Bank', 'Zenith Bank', 'GTBank', 'First Bank', 'UBA',
-  'Fidelity Bank', 'Union Bank', 'Stanbic IBTC', 'Sterling Bank',
-  'Polaris Bank', 'Kuda Bank', 'Opay', 'PalmPay', 'Moniepoint',
+const EVENT_CATEGORIES = [
+  'Campus Party', 'Club & Nightlife', 'Concert & Music', 'Beach & Pool Party',
+  'Festival', 'Fashion & Runway', 'Rave', 'Conference & Meetup', 'Other'
 ];
 
 // =============================================
@@ -68,7 +29,7 @@ interface TicketTierEntry {
   name: string;
   customName: string;
   genderPricing: boolean;
-  price: string;         // unified price
+  price: string;
   malePrice: string;
   femalePrice: string;
   quantity: string;
@@ -102,7 +63,7 @@ function StepIndicator({ steps, current }: { steps: string[]; current: number })
               {i < current ? <Check size={14} /> : <span>{i + 1}</span>}
             </div>
             <span
-              className="text-[9px] mt-1 font-medium text-center max-w-[60px] leading-tight"
+              className="text-[10px] mt-1 font-medium text-center max-w-[65px] leading-tight"
               style={{ color: i === current ? 'var(--accent)' : 'var(--text-muted)' }}
             >
               {step}
@@ -110,7 +71,7 @@ function StepIndicator({ steps, current }: { steps: string[]; current: number })
           </div>
           {i < steps.length - 1 && (
             <div
-              className="w-8 sm:w-12 h-0.5 mx-1 mt-[-10px]"
+              className="w-10 sm:w-16 h-0.5 mx-1 mt-[-10px]"
               style={{ backgroundColor: i < current ? 'var(--success)' : 'var(--border)' }}
             />
           )}
@@ -121,7 +82,7 @@ function StepIndicator({ steps, current }: { steps: string[]; current: number })
 }
 
 // =============================================
-// TICKET TIER BUILDER
+// TICKET TIER CARD
 // =============================================
 function TicketTierCard({
   tier,
@@ -149,133 +110,156 @@ function TicketTierCard({
 
   return (
     <div
-      className="card p-4 space-y-3 relative"
-      style={{ borderLeft: '3px solid var(--accent)' }}
+      className="neu-card p-5 rounded-2xl space-y-4 relative"
+      style={{ border: '1px solid var(--border)' }}
     >
-      {!isOnly && (
-        <button
-          onClick={onRemove}
-          className="absolute top-3 right-3 p-1 rounded-lg"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          <X size={14} />
-        </button>
-      )}
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-          style={{ backgroundColor: 'rgba(0,229,255,0.1)', color: 'var(--accent)' }}
-        >
-          Ticket {index + 1}
-        </span>
+      {/* Tier header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span
+            className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+            style={{ backgroundColor: 'var(--accent)' }}
+          >
+            {index + 1}
+          </span>
+          <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+            {displayName || `Tier ${index + 1}`}
+          </span>
+        </div>
+        {!isOnly && (
+          <button
+            onClick={onRemove}
+            className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
 
-      {/* Tier type selection */}
+      {/* Tier name selector */}
       <div>
         <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-          Ticket Tier
+          Tier Type
         </label>
         <div className="flex flex-wrap gap-1.5 mb-2">
           {TICKET_TIERS.map((t) => (
             <button
               key={t}
+              type="button"
               onClick={() => onChange({ ...tier, name: t, customName: '' })}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                tier.name === t ? 'text-white' : ''
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                tier.name === t
+                  ? 'text-white shadow-sm'
+                  : 'hover:border-gray-400'
               }`}
               style={{
                 backgroundColor: tier.name === t ? 'var(--accent)' : 'var(--canvas)',
-                color: tier.name === t ? 'white' : 'var(--text-secondary)',
-                border: '1px solid var(--border)'
+                color: tier.name === t ? '#FFFFFF' : 'var(--text-secondary)',
+                border: tier.name === t ? '1px solid var(--accent)' : '1px solid var(--border)',
               }}
             >
               {t}
             </button>
           ))}
           <button
+            type="button"
             onClick={() => onChange({ ...tier, name: 'Custom' })}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all`}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+              tier.name === 'Custom'
+                ? 'text-white shadow-sm'
+                : 'hover:border-gray-400'
+            }`}
             style={{
               backgroundColor: tier.name === 'Custom' ? 'var(--accent)' : 'var(--canvas)',
-              color: tier.name === 'Custom' ? 'white' : 'var(--text-secondary)',
-              border: '1px solid var(--border)'
+              color: tier.name === 'Custom' ? '#FFFFFF' : 'var(--text-secondary)',
+              border: tier.name === 'Custom' ? '1px solid var(--accent)' : '1px solid var(--border)',
             }}
           >
             Custom
           </button>
         </div>
+
         {tier.name === 'Custom' && (
           <input
             type="text"
-            placeholder="Enter custom tier name"
+            placeholder="e.g. Backstage Pass, Fan Zone, Student Early Bird"
             value={tier.customName}
             onChange={(e) => onChange({ ...tier, customName: e.target.value })}
-            className="neu-input"
+            className="neu-input w-full"
           />
         )}
       </div>
 
-      {/* Ticket image upload */}
+      {/* Ticket Image upload */}
       <div>
-        <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-          Ticket Design Image
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+            Ticket Graphic / Image
+          </label>
+          <span className="text-[11px] font-medium" style={{ color: 'var(--accent)' }}>
+            Any aspect ratio supported
+          </span>
+        </div>
+
         <div
-          className="relative rounded-xl overflow-hidden cursor-pointer"
           onClick={() => fileRef.current?.click()}
-          style={{
-            background: 'var(--canvas)',
-            border: '2px dashed var(--border)',
-            minHeight: '80px',
-          }}
+          className="cursor-pointer rounded-xl border-2 border-dashed p-3 transition-all hover:border-[#00e5ff] relative overflow-hidden"
+          style={{ borderColor: tier.imagePreview ? 'transparent' : 'var(--border)', backgroundColor: 'var(--canvas)' }}
         >
           {tier.imagePreview ? (
-            <div className="relative rounded-xl overflow-hidden group">
-              <img src={tier.imagePreview} alt="Ticket Design" className="w-full object-cover max-h-48 rounded-xl" />
-              
-              {/* Live Ticket Overlay Simulation */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/60 p-3 flex flex-col justify-between pointer-events-none">
-                {/* Top row: Tier name & Gender badge */}
+            <div className="relative group w-full rounded-xl overflow-hidden shadow-lg border border-white/10" style={{ backgroundColor: '#0a0a0a' }}>
+              <div className="relative w-full overflow-hidden flex items-center justify-center bg-black/40">
+                <img
+                  src={tier.imagePreview}
+                  alt={displayName}
+                  className="w-full max-h-[220px] object-contain rounded-t-xl"
+                />
+              </div>
+
+              <div className="p-3 bg-gradient-to-t from-black via-black/95 to-black/80 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded bg-black/60 backdrop-blur-sm text-[10px] font-bold text-white uppercase tracking-wider border border-white/20">
-                    {tier.name === 'Custom' ? (tier.customName || 'Custom Tier') : tier.name}
-                  </span>
-                  {tier.genderPricing && (
-                    <div className="flex items-center gap-1">
-                      <span className="px-1.5 py-0.5 rounded bg-blue-600/90 text-[9px] font-bold text-white tracking-wide">
-                        Male: ₦{tier.malePrice ? Number(tier.malePrice).toLocaleString() : '0'}
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-pink-600/90 text-[9px] font-bold text-white tracking-wide">
-                        Female: ₦{tier.femalePrice ? Number(tier.femalePrice).toLocaleString() : '0'}
+                  <div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#00e5ff] block">
+                      {displayName || 'Event Ticket'}
+                    </span>
+                    <span className="text-xs font-medium text-white/70">
+                      Admits {tier.admits || '1'} Person
+                    </span>
+                  </div>
+                  {tier.genderPricing ? (
+                    <div className="text-right">
+                      <span className="text-[10px] text-gray-400 block">M: ₦{Number(tier.malePrice || 0).toLocaleString()}</span>
+                      <span className="text-[10px] text-[#ff4081] block">F: ₦{Number(tier.femalePrice || 0).toLocaleString()}</span>
+                    </div>
+                  ) : (
+                    <div className="text-right">
+                      <span className="text-sm font-black text-white font-mono">
+                        ₦{Number(tier.price || 0).toLocaleString()}
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* Bottom row: QR code + Verification code */}
-                <div className="flex items-end justify-between">
-                  <div className="bg-black/75 backdrop-blur-md px-2 py-1 rounded border border-white/10">
+                <div className="flex items-end justify-between pt-1 border-t border-white/10">
+                  <div className="bg-black/75 px-2 py-0.5 rounded border border-white/10">
                     <span className="text-[8px] uppercase tracking-wider block text-gray-400 font-mono">Verification Code</span>
-                    <span className="font-mono text-[11px] font-bold text-[#00e5ff] tracking-widest">
+                    <span className="font-mono text-[10px] font-bold text-[#00e5ff] tracking-widest">
                       TKT-XXXX-2026
                     </span>
                   </div>
-
-                  {/* Simulated QR Code box */}
-                  <div className="w-12 h-12 bg-white p-1 rounded-md shadow-lg flex flex-col items-center justify-center">
+                  <div className="w-10 h-10 bg-white p-1 rounded shadow-md flex items-center justify-center">
                     <div className="w-full h-full border border-black/20 flex flex-wrap p-0.5 gap-0.5 bg-gray-900 rounded-[2px]">
-                      <div className="w-3 h-3 bg-white border border-gray-900" />
-                      <div className="w-2 h-2 bg-white ml-auto" />
-                      <div className="w-3 h-3 bg-white mt-auto" />
+                      <div className="w-2.5 h-2.5 bg-white border border-gray-900" />
+                      <div className="w-1.5 h-1.5 bg-white ml-auto" />
+                      <div className="w-2.5 h-2.5 bg-white mt-auto" />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Hover to change image overlay */}
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl cursor-pointer">
                 <Upload size={20} color="white" />
-                <span className="text-white text-xs ml-2 font-semibold">Click to Change Ticket Image</span>
+                <span className="text-white text-xs ml-2 font-semibold">Click to Change Image</span>
               </div>
             </div>
           ) : (
@@ -284,10 +268,10 @@ function TicketTierCard({
                 <ImageIcon size={22} style={{ color: 'var(--accent)' }} />
               </div>
               <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Upload ticket image <span style={{ color: 'var(--accent)' }}>(any size allowed)</span>
+                Upload ticket artwork <span style={{ color: 'var(--accent)' }}>(optional)</span>
               </span>
               <span className="text-[11px] text-center max-w-xs" style={{ color: 'var(--text-muted)' }}>
-                TiKeTi automatically stamps unique QR code &amp; verification code onto each ticket for event entry
+                TiKeTi automatically stamps a unique QR code onto each ticket for venue validation
               </span>
             </div>
           )}
@@ -302,6 +286,7 @@ function TicketTierCard({
           <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>e.g. Male ₦20,000 / Female ₦5,000</p>
         </div>
         <button
+          type="button"
           onClick={() => onChange({ ...tier, genderPricing: !tier.genderPricing })}
           className="w-10 h-5 rounded-full transition-all relative"
           style={{
@@ -358,7 +343,7 @@ function TicketTierCard({
         </div>
       )}
 
-      {/* Quantity and admits */}
+      {/* Quantity & Admits */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
@@ -392,105 +377,129 @@ function TicketTierCard({
 // =============================================
 // MAIN REGISTRATION COMPONENT
 // =============================================
-export function EventPlannerRegistration() {
+export function EventOrganizerRegistration() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [submittedEventId, setSubmittedEventId] = useState<string | null>(null);
 
-  // Step 1 – Party Type
-  const [partyType, setPartyType] = useState<'campus' | 'off_campus' | ''>('');
-  const [university, setUniversity] = useState('');
-  const [universityCustom, setUniversityCustom] = useState('');
-  const [state, setState] = useState('');
-  const [location, setLocation] = useState('');
+  // Step 1: Account Setup
+  const [organizerName, setOrganizerName] = useState('');
+  const [organizerEmail, setOrganizerEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Step 2 – Event Info (for the first event)
+  // Step 2: Event Details
   const [eventName, setEventName] = useState('');
   const [eventDescription, setEventDescription] = useState('');
+  const [venue, setVenue] = useState('');
+  const [eventCategory, setEventCategory] = useState('Campus Party');
   const [eventDate, setEventDate] = useState('');
   const [salesEnd, setSalesEnd] = useState('');
-  const [capacity, setCapacity] = useState('');
-  const [eventCategory, setEventCategory] = useState('');
-  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [capacity, setCapacity] = useState('500');
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [posterPreview, setPosterPreview] = useState<string | null>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
-  const logoRef = useRef<HTMLInputElement>(null);
+  const posterRef = useRef<HTMLInputElement>(null);
 
-  // Step 3 – Tickets
+  // Step 3: Ticket Tiers
   const [tickets, setTickets] = useState<TicketTierEntry[]>([{
     id: 't_' + Date.now(),
     name: 'Regular',
     customName: '',
     genderPricing: false,
-    price: '',
+    price: '3000',
     malePrice: '',
     femalePrice: '',
-    quantity: '',
+    quantity: '200',
     admits: '1',
     imageFile: null,
     imagePreview: null,
   }]);
 
-  // Step 4 – Account Setup
-  const [plannerName, setPlannerName] = useState('');
-  const [plannerEmail, setPlannerEmail] = useState('');
-  const [whatsapp, setWhatsapp] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [existingPlannerEvents, setExistingPlannerEvents] = useState<any[]>([]);
-
-  // Step 5 – Payment Account
+  // Step 4: Payout Details
+  const [banks, setBanks] = useState<{ id: number; name: string; code: string }[]>([]);
+  const [selectedBankCode, setSelectedBankCode] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
+  const [resolvingAccount, setResolvingAccount] = useState(false);
+  const [accountResolveError, setAccountResolveError] = useState('');
 
-  // Check if planner email already has events registered
+  // Fetch banks on mount
   useEffect(() => {
-    const clean = plannerEmail.trim().toLowerCase();
-    if (!clean || !clean.includes('@') || clean.length < 5) {
-      setExistingPlannerEvents([]);
-      return;
-    }
-    const t = setTimeout(async () => {
+    async function loadBanks() {
       try {
-        const found = await api.auth.getAccountsByEmail(clean);
-        setExistingPlannerEvents(found);
-        if (found.length > 0) {
-          const profile = found[0];
-          if (!plannerName && profile.name) setPlannerName(profile.name);
-          if (!whatsapp && profile.whatsapp_number) setWhatsapp(profile.whatsapp_number);
-          if (!bankName && profile.bank_name) setBankName(profile.bank_name);
-          if (!accountNumber && profile.account_number) setAccountNumber(profile.account_number);
-          if (!accountName && profile.account_name) setAccountName(profile.account_name);
+        const list = await api.auth.getBanks();
+        setBanks(list);
+        if (list.length > 0 && !selectedBankCode) {
+          setSelectedBankCode(list[0].code);
+          setBankName(list[0].name);
         }
-      } catch {}
-    }, 300);
-    return () => clearTimeout(t);
-  }, [plannerEmail]);
+      } catch (e) {
+        console.error('Failed to load banks:', e);
+      }
+    }
+    loadBanks();
+  }, []);
 
-  const STEPS = ['Party Type', 'Event Info', 'Tickets', 'Account', 'Payment'];
+  // When bank selection changes
+  const handleBankChange = (code: string) => {
+    setSelectedBankCode(code);
+    const b = banks.find(x => x.code === code);
+    if (b) setBankName(b.name);
+    setAccountName('');
+    setAccountResolveError('');
+  };
 
-  // ── Validation per step ──
+  // Auto-resolve account name when 10 digits are typed
+  useEffect(() => {
+    const cleanNum = accountNumber.trim().replace(/\D/g, '');
+    if (cleanNum.length === 10 && selectedBankCode) {
+      let isMounted = true;
+      setResolvingAccount(true);
+      setAccountResolveError('');
+
+      api.auth.resolveAccount(cleanNum, selectedBankCode)
+        .then((name) => {
+          if (isMounted) {
+            setAccountName(name);
+            setResolvingAccount(false);
+          }
+        })
+        .catch((err) => {
+          if (isMounted) {
+            setAccountResolveError(err.message || 'Could not verify account');
+            setResolvingAccount(false);
+          }
+        });
+
+      return () => { isMounted = false; };
+    } else {
+      setAccountName('');
+      setAccountResolveError('');
+    }
+  }, [accountNumber, selectedBankCode]);
+
+  const STEPS = ['Account', 'Event Details', 'Tickets', 'Payout'];
+
+  // ── Validation ──
   const validateStep = (): boolean => {
     if (step === 0) {
-      if (!partyType) { showToast('Please select party type', 'error'); return false; }
-      if (partyType === 'campus' && !university && !universityCustom) {
-        showToast('Please select or type your university', 'error'); return false;
-      }
-      if (partyType === 'off_campus' && (!state || !location)) {
-        showToast('Please select state and enter location', 'error'); return false;
-      }
+      if (!organizerName.trim()) { showToast('Organizer / Brand name is required', 'error'); return false; }
+      if (!organizerEmail.trim() || !organizerEmail.includes('@')) { showToast('Valid email is required', 'error'); return false; }
+      if (password.length < 8) { showToast('Password must be at least 8 characters', 'error'); return false; }
+      if (password !== confirmPassword) { showToast('Passwords do not match', 'error'); return false; }
     }
     if (step === 1) {
       if (!eventName.trim()) { showToast('Event name is required', 'error'); return false; }
       if (!eventDescription.trim()) { showToast('Event description is required', 'error'); return false; }
+      if (!venue.trim()) { showToast('Venue is required', 'error'); return false; }
       if (!eventDate) { showToast('Event date is required', 'error'); return false; }
-      if (!salesEnd) { showToast('Sales close date is required', 'error'); return false; }
-      if (!capacity) { showToast('Capacity is required', 'error'); return false; }
+      if (!salesEnd) { showToast('Ticket sales closing date is required', 'error'); return false; }
     }
     if (step === 2) {
       for (const t of tickets) {
@@ -505,16 +514,9 @@ export function EventPlannerRegistration() {
       }
     }
     if (step === 3) {
-      if (!plannerName.trim()) { showToast('Name is required', 'error'); return false; }
-      if (!plannerEmail.trim()) { showToast('Email is required', 'error'); return false; }
-      if (!whatsapp.trim()) { showToast('WhatsApp number is required', 'error'); return false; }
-      if (password.length < 8) { showToast('Password must be at least 8 characters', 'error'); return false; }
-      if (password !== confirmPassword) { showToast('Passwords do not match', 'error'); return false; }
-    }
-    if (step === 4) {
-      if (!bankName) { showToast('Bank name is required', 'error'); return false; }
-      if (!accountNumber.trim()) { showToast('Account number is required', 'error'); return false; }
-      if (!accountName.trim()) { showToast('Account name is required', 'error'); return false; }
+      if (!selectedBankCode || !bankName) { showToast('Please select your bank', 'error'); return false; }
+      if (accountNumber.trim().length !== 10) { showToast('Account number must be 10 digits', 'error'); return false; }
+      if (!accountName.trim()) { showToast('Account name must be verified via Paystack', 'error'); return false; }
     }
     return true;
   };
@@ -524,55 +526,44 @@ export function EventPlannerRegistration() {
     if (step < STEPS.length - 1) setStep(step + 1);
   };
 
+  const handlePrev = () => {
+    if (step > 0) setStep(step - 1);
+  };
+
   const handleSubmit = async () => {
     if (!validateStep()) return;
     setLoading(true);
 
     try {
-      // ── Step A: Register the planner account ──
-      const regResult = await api.auth.registerPlanner({
-        party_type: partyType as 'campus' | 'off_campus',
-        university: partyType === 'campus' ? (university || universityCustom) : undefined,
-        state: partyType === 'off_campus' ? state : undefined,
-        location: partyType === 'off_campus' ? location : undefined,
-        name: plannerName.trim(),
-        email: plannerEmail.trim(),
-        whatsapp_number: whatsapp.trim(),
+      // 1. Register organizer account
+      const regResult = await api.auth.registerOrganizer({
+        name: organizerName.trim(),
+        email: organizerEmail.trim().toLowerCase(),
         password,
         bank_name: bankName,
+        bank_code: selectedBankCode,
         account_number: accountNumber.trim(),
         account_name: accountName.trim(),
         eventName: eventName.trim(),
       });
 
-      const token: string = regResult?.token || '';
+      // 2. Create the event
+      const createdEvent = await api.events.create({
+        name: eventName.trim(),
+        description: eventDescription.trim() || 'Event details coming soon.',
+        venue: venue.trim(),
+        eventDate: eventDate || new Date(Date.now() + 86400000 * 7).toISOString(),
+        salesEndDate: salesEnd || new Date(Date.now() + 86400000 * 6).toISOString(),
+        capacity: parseInt(capacity) || 500,
+        bannerUrl: bannerPreview || '',
+        posterUrl: posterPreview || bannerPreview || '',
+        category: eventCategory,
+      });
 
-      // ── Step B: Create the first event ──
-      let eventId: string | null = null;
-      if (eventName.trim()) {
-        try {
-          const venueStr = partyType === 'campus'
-            ? (university === 'Other' ? universityCustom : (university || 'University Venue'))
-            : `${location}, ${state}`;
+      const eventId = createdEvent?.id || null;
+      setSubmittedEventId(eventId);
 
-          const createdEvent = await api.events.create({
-            name: eventName.trim(),
-            description: eventDescription.trim() || 'Event details coming soon.',
-            venue: venueStr,
-            eventDate: eventDate || new Date(Date.now() + 86400000 * 7).toISOString(),
-            salesEndDate: salesEnd || new Date(Date.now() + 86400000 * 6).toISOString(),
-            capacity: parseInt(capacity) || 500,
-            bannerUrl: bannerPreview || '',
-            posterUrl: logoPreview || bannerPreview || '',
-            category: eventCategory.trim() || undefined,
-          });
-          eventId = createdEvent?.id || null;
-        } catch {
-          // Silently continue
-        }
-      }
-
-      // ── Step C: Create ticket types (with gender pricing) ──
+      // 3. Create ticket tiers
       if (eventId) {
         for (const t of tickets) {
           const tierName = t.name === 'Custom' ? t.customName : t.name;
@@ -593,14 +584,12 @@ export function EventPlannerRegistration() {
               imageUrl: t.imagePreview || '',
               ticket_image_url: t.imagePreview || '',
             });
-          } catch {
-            // continue with next ticket
-          }
+          } catch {}
         }
       }
 
-      showToast('Registration complete! Welcome to TiKeTi', 'success');
-      navigate('/owner');
+      setSubmitted(true);
+      showToast('Event submitted for approval!', 'success');
     } catch (err: any) {
       showToast(err.message || 'Registration failed', 'error');
     } finally {
@@ -631,6 +620,51 @@ export function EventPlannerRegistration() {
   const removeTicket = (id: string) => {
     setTickets(prev => prev.filter(t => t.id !== id));
   };
+
+  if (submitted) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="max-w-md w-full neu-card p-8 rounded-3xl text-center space-y-5" style={{ border: '1px solid var(--border)' }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto" style={{ backgroundColor: 'rgba(0,229,255,0.1)' }}>
+            <CheckCircle2 size={36} style={{ color: 'var(--accent)' }} />
+          </div>
+
+          <div>
+            <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider mb-2" style={{ backgroundColor: 'rgba(234,179,8,0.15)', color: '#eab308' }}>
+              Pending Admin Approval
+            </span>
+            <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Event Submitted Successfully!
+            </h2>
+            <p className="text-sm mt-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Thank you, <strong>{organizerName}</strong>! Your event <strong>{eventName}</strong> has been submitted.
+              Our administrators will review your event and configure your Paystack settlement subaccount.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl text-left space-y-2" style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+              <Info size={14} style={{ color: 'var(--accent)' }} />
+              What happens next?
+            </div>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              • Once approved, your tickets immediately become live for public checkout.<br />
+              • Ticket payments split automatically, and your share settles directly into your <strong>{bankName}</strong> account.<br />
+              • You can log into your organizer dashboard anytime using your email.
+            </p>
+          </div>
+
+          <Button
+            variant="primary"
+            className="w-full py-3"
+            onClick={() => navigate('/owner')}
+          >
+            Go to Organizer Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)' }}>
@@ -664,401 +698,274 @@ export function EventPlannerRegistration() {
         {/* Title */}
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Create Event Planner Account
+            Host Your Event on TiKeTi
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Set up your account and first event in minutes
+          <p className="text-xs sm:text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            Register as an event organizer and launch ticket sales
           </p>
         </div>
 
         <StepIndicator steps={STEPS} current={step} />
 
-        {/* ───────────────── STEP 1: PARTY TYPE ───────────────── */}
+        {/* ───────────────── STEP 0: ACCOUNT SETUP ───────────────── */}
         {step === 0 && (
-          <div className="space-y-6 animate-fade-up">
-            <div>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-                Select Event Category
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                Choose whether your party is targeted at a university campus or an off-campus city venue.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setPartyType('campus')}
-                className="neu-card p-5 rounded-2xl flex flex-col items-start gap-3 transition-all text-left relative overflow-hidden"
-                style={{
-                  border: partyType === 'campus' ? '2px solid var(--accent)' : '1px solid var(--shadow-dark)',
-                  backgroundColor: partyType === 'campus' ? 'rgba(37,99,235,0.06)' : 'var(--card-bg)',
-                }}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center transition-all"
-                    style={{
-                      backgroundColor: partyType === 'campus' ? 'var(--accent)' : 'rgba(0,0,0,0.05)',
-                      color: partyType === 'campus' ? '#FFFFFF' : 'var(--text-primary)'
-                    }}
-                  >
-                    <GraduationCap size={24} />
-                  </div>
-                  {partyType === 'campus' && (
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center bg-accent text-white shadow-sm">
-                      <Check size={14} />
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Campus Party</p>
-                  <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                    University, polytechnic or student faculty gathering
-                  </p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPartyType('off_campus')}
-                className="neu-card p-5 rounded-2xl flex flex-col items-start gap-3 transition-all text-left relative overflow-hidden"
-                style={{
-                  border: partyType === 'off_campus' ? '2px solid var(--accent)' : '1px solid var(--shadow-dark)',
-                  backgroundColor: partyType === 'off_campus' ? 'rgba(37,99,235,0.06)' : 'var(--card-bg)',
-                }}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <div
-                    className="w-12 h-12 rounded-xl flex items-center justify-center transition-all"
-                    style={{
-                      backgroundColor: partyType === 'off_campus' ? 'var(--accent)' : 'rgba(0,0,0,0.05)',
-                      color: partyType === 'off_campus' ? '#FFFFFF' : 'var(--text-primary)'
-                    }}
-                  >
-                    <Compass size={24} />
-                  </div>
-                  {partyType === 'off_campus' && (
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center bg-accent text-white shadow-sm">
-                      <Check size={14} />
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Off-Campus Event</p>
-                  <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                    City lounge, club, beach festival, concert or external venue
-                  </p>
-                </div>
-              </button>
-            </div>
-
-            {/* Campus: select/type university */}
-            {partyType === 'campus' && (
-              <div className="space-y-4 pt-2 animate-fade-up">
-                {/* Popular Universities quick selector chips */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    Popular Campuses (Quick Select)
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      'Federal University of Technology, Owerri (FUTO)',
-                      'University of Lagos (UNILAG)',
-                      'University of Nigeria, Nsukka (UNN)',
-                      'University of Ibadan (UI)',
-                      'Obafemi Awolowo University (OAU)',
-                      'University of Benin (UNIBEN)',
-                      'Imo State University (IMSU)',
-                      'Federal University of Technology, Akure (FUTA)',
-                      'Covenant University',
-                    ].map(u => {
-                      const isSelected = university === u;
-                      return (
-                        <button
-                          key={u}
-                          type="button"
-                          onClick={() => {
-                            setUniversity(u);
-                            setUniversityCustom('');
-                          }}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
-                            isSelected
-                              ? 'bg-accent text-white border-accent font-bold shadow-sm'
-                              : 'bg-card-bg text-text-secondary border-[var(--shadow-dark)] hover:border-accent/50'
-                          }`}
-                        >
-                          {u.includes('(') ? u.split('(')[1].replace(')', '') : u}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                    Select University / Institution
-                  </label>
-                  <select
-                    value={university}
-                    onChange={(e) => {
-                      setUniversity(e.target.value);
-                      if (e.target.value !== 'other') {
-                        setUniversityCustom('');
-                      }
-                    }}
-                    className="neu-input"
-                  >
-                    <option value="">-- Choose your university from list --</option>
-                    {NIGERIAN_UNIVERSITIES.map(u => (
-                      <option key={u} value={u}>{u}</option>
-                    ))}
-                    <option value="other">Other Institution (Type below)</option>
-                  </select>
-                </div>
-
-                {/* Only display the custom university input if "other" is explicitly selected */}
-                {university === 'other' && (
-                  <div className="animate-fade-up">
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                      Specify University Name
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Federal University of Technology, Owerri (FUTO)"
-                      value={universityCustom}
-                      onChange={(e) => setUniversityCustom(e.target.value)}
-                      className="neu-input"
-                      autoFocus
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Off campus: state + location */}
-            {partyType === 'off_campus' && (
-              <div className="space-y-4 pt-2 animate-fade-up">
-                {/* Popular States quick chips */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    Popular States
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {['Lagos', 'FCT (Abuja)', 'Imo', 'Rivers', 'Oyo', 'Enugu', 'Delta', 'Edo', 'Ogun'].map(st => {
-                      const isSelected = state === st;
-                      return (
-                        <button
-                          key={st}
-                          type="button"
-                          onClick={() => setState(st)}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
-                            isSelected
-                              ? 'bg-accent text-white border-accent font-bold shadow-sm'
-                              : 'bg-card-bg text-text-secondary border-[var(--shadow-dark)] hover:border-accent/50'
-                          }`}
-                        >
-                          {st}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                    State
-                  </label>
-                  <select
-                    value={state}
-                    onChange={(e) => setState(e.target.value)}
-                    className="neu-input"
-                  >
-                    <option value="">-- Select State --</option>
-                    {NIGERIAN_STATES.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                    Location / Venue Area
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Victoria Island, Lagos or New Owerri, Imo"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    className="neu-input"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ───────────────── STEP 2: EVENT INFO ───────────────── */}
-        {step === 1 && (
-          <div className="space-y-4 animate-fade-up">
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Event Information</h2>
-
-            {/* Banner */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Event Banner / Flyer
-              </label>
-              <div
-                onClick={() => bannerRef.current?.click()}
-                className="rounded-xl overflow-hidden cursor-pointer"
-                style={{ border: '2px dashed var(--border)', minHeight: 100, background: 'var(--canvas)' }}
-              >
-                {bannerPreview ? (
-                  <img src={bannerPreview} alt="Banner" className="w-full max-h-48 object-cover" />
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-24 gap-2">
-                    <Upload size={22} style={{ color: 'var(--text-muted)' }} />
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Click to upload banner image</span>
-                  </div>
-                )}
-              </div>
-              <input
-                ref={bannerRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) { setBannerFile(f); setBannerPreview(URL.createObjectURL(f)); }
-                }}
-              />
-            </div>
-
-            {/* Logo */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Event Logo (Optional)
-              </label>
-              <div
-                onClick={() => logoRef.current?.click()}
-                className="rounded-xl overflow-hidden cursor-pointer flex items-center justify-center"
-                style={{ border: '2px dashed var(--border)', minHeight: 72, background: 'var(--canvas)' }}
-              >
-                {logoPreview ? (
-                  <img src={logoPreview} alt="Logo" className="h-16 w-16 object-contain rounded-lg" />
-                ) : (
-                  <div className="flex flex-col items-center gap-1.5 py-3">
-                    <ImageIcon size={20} style={{ color: 'var(--text-muted)' }} />
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Upload logo</span>
-                  </div>
-                )}
-              </div>
-              <input
-                ref={logoRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) { setLogoFile(f); setLogoPreview(URL.createObjectURL(f)); }
-                }}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Event Name</label>
-              <input type="text" placeholder="e.g. Faculty Night Out 2026" value={eventName} onChange={(e) => setEventName(e.target.value)} className="neu-input" />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Description</label>
-              <textarea
-                rows={3}
-                placeholder="Describe your event — dress code, performers, what to expect..."
-                value={eventDescription}
-                onChange={(e) => setEventDescription(e.target.value)}
-                className="neu-input resize-none"
-                style={{ minHeight: 80 }}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-5 animate-fade-up">
+            {/* Multi-event notice */}
+            <div className="p-3.5 rounded-2xl flex items-start gap-3" style={{ backgroundColor: 'rgba(0,229,255,0.08)', border: '1px solid rgba(0,229,255,0.25)' }}>
+              <Info size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Event Date &amp; Time</label>
-                <input type="datetime-local" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="neu-input" />
+                <p className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                  Multi-Event Organizer Notice
+                </p>
+                <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  You can use the same email and account number to host multiple events.
+                </p>
               </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Sales Close Date</label>
-                <input type="datetime-local" value={salesEnd} onChange={(e) => setSalesEnd(e.target.value)} className="neu-input" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Venue Capacity</label>
-              <input type="number" placeholder="e.g. 500" value={capacity} onChange={(e) => setCapacity(e.target.value)} className="neu-input" />
             </div>
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Event Category <span className="font-normal normal-case opacity-60">(max 40 characters)</span>
+                Organizer / Brand Name *
               </label>
               <input
                 type="text"
-                id="event-category-input"
-                list="category-suggestions"
-                placeholder="e.g. Music, Conference, Sports…"
-                value={eventCategory}
-                maxLength={40}
-                onChange={(e) => setEventCategory(e.target.value)}
-                className="neu-input"
-                required
+                placeholder="e.g. Eclipse Entertainment, Campus Vibes Ent"
+                value={organizerName}
+                onChange={(e) => setOrganizerName(e.target.value)}
+                className="neu-input w-full"
               />
-              <datalist id="category-suggestions">
-                <option value="Music" />
-                <option value="Nightlife" />
-                <option value="Conference" />
-                <option value="Sports" />
-                <option value="Arts" />
-                <option value="Food" />
-              </datalist>
-              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-                Pick a suggestion or type your own. Shown as a filter chip on the events page.
-              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Organizer Email Address *
+              </label>
+              <input
+                type="email"
+                placeholder="organizer@example.com"
+                value={organizerEmail}
+                onChange={(e) => setOrganizerEmail(e.target.value)}
+                className="neu-input w-full"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Password *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Min 8 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="neu-input w-full pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Confirm Password *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Re-enter password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="neu-input w-full pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* ───────────────── STEP 3: TICKETS ───────────────── */}
-        {step === 2 && (
-          <div className="space-y-4 animate-fade-up">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Ticket Setup</h2>
-              <button
-                onClick={addTicket}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg"
-                style={{ backgroundColor: 'rgba(0,229,255,0.1)', color: 'var(--accent)' }}
-              >
-                <Plus size={13} /> Add Tier
-              </button>
+        {/* ───────────────── STEP 1: EVENT DETAILS ───────────────── */}
+        {step === 1 && (
+          <div className="space-y-5 animate-fade-up">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Event Name *
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. FUTO All White Party, Neon Fest Lagos"
+                value={eventName}
+                onChange={(e) => setEventName(e.target.value)}
+                className="neu-input w-full"
+              />
             </div>
 
-            <div
-              className="flex items-start gap-2 p-3 rounded-xl text-xs"
-              style={{ background: 'rgba(0,229,255,0.05)', border: '1px solid rgba(0,229,255,0.2)' }}
-            >
-              <Info size={14} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
-              <span style={{ color: 'var(--text-secondary)' }}>
-                Upload your ticket design image. TiKeTi will automatically overlay the QR code and verification code on each ticket before sending to buyers.
-              </span>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Event Category *
+              </label>
+              <select
+                value={eventCategory}
+                onChange={(e) => setEventCategory(e.target.value)}
+                className="neu-input w-full"
+              >
+                {EVENT_CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Venue / Location Address *
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. FUTO Hall of Excellence, Owerri / The Palms Mall, Lekki"
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)}
+                className="neu-input w-full"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Event Description *
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Describe your event, dress code, performers, and vibes..."
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+                className="neu-input w-full resize-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Event Date &amp; Time *
+                </label>
+                <input
+                  type="datetime-local"
+                  value={eventDate}
+                  onChange={(e) => setEventDate(e.target.value)}
+                  className="neu-input w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Sales Close Date *
+                </label>
+                <input
+                  type="datetime-local"
+                  value={salesEnd}
+                  onChange={(e) => setSalesEnd(e.target.value)}
+                  className="neu-input w-full"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Venue Capacity *
+              </label>
+              <input
+                type="number"
+                placeholder="e.g. 500"
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                className="neu-input w-full"
+              />
+            </div>
+
+            {/* Poster / Banner upload */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Event Poster / Banner (Optional)
+              </label>
+              <div
+                onClick={() => posterRef.current?.click()}
+                className="cursor-pointer rounded-2xl border-2 border-dashed p-4 transition-all hover:border-[#00e5ff] text-center"
+                style={{ borderColor: posterPreview ? 'transparent' : 'var(--border)', backgroundColor: 'var(--canvas)' }}
+              >
+                {posterPreview ? (
+                  <div className="relative">
+                    <img src={posterPreview} alt="Poster preview" className="w-full max-h-48 object-cover rounded-xl" />
+                    <span className="text-xs text-white bg-black/60 px-3 py-1 rounded-full absolute bottom-2 right-2">
+                      Click to Change
+                    </span>
+                  </div>
+                ) : (
+                  <div className="py-4 flex flex-col items-center gap-1.5">
+                    <Upload size={22} style={{ color: 'var(--accent)' }} />
+                    <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      Upload Event Flyer or Poster
+                    </span>
+                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      JPG, PNG, WebP up to 5MB
+                    </span>
+                  </div>
+                )}
+              </div>
+              <input
+                ref={posterRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) setPosterPreview(URL.createObjectURL(f));
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ───────────────── STEP 2: TICKETS ───────────────── */}
+        {step === 2 && (
+          <div className="space-y-5 animate-fade-up">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                  Configure Ticket Tiers
+                </h2>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Set up prices, gender pricing, and admitted count for each pass
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={addTicket}
+                className="flex items-center gap-1 text-xs"
+              >
+                <Plus size={14} /> Add Tier
+              </Button>
             </div>
 
             <div className="space-y-4">
-              {tickets.map((t, i) => (
+              {tickets.map((tier, idx) => (
                 <TicketTierCard
-                  key={t.id}
-                  tier={t}
-                  index={i}
-                  onChange={(updated) => updateTicket(t.id, updated)}
-                  onRemove={() => removeTicket(t.id)}
+                  key={tier.id}
+                  tier={tier}
+                  index={idx}
+                  onChange={(updated) => updateTicket(tier.id, updated)}
+                  onRemove={() => removeTicket(tier.id)}
                   isOnly={tickets.length === 1}
                 />
               ))}
@@ -1066,226 +973,127 @@ export function EventPlannerRegistration() {
           </div>
         )}
 
-        {/* ───────────────── STEP 4: ACCOUNT ───────────────── */}
+        {/* ───────────────── STEP 3: PAYOUT DETAILS ───────────────── */}
         {step === 3 && (
-          <div className="space-y-4 animate-fade-up">
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Set Up Your Account</h2>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Full Name / Organization Name
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. John Doe or EventPro Nigeria"
-                value={plannerName}
-                onChange={(e) => setPlannerName(e.target.value)}
-                className="neu-input"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Email Address
-              </label>
-              <input type="email" placeholder="you@example.com" value={plannerEmail} onChange={(e) => setPlannerEmail(e.target.value)} className="neu-input" />
-            </div>
-
-            {existingPlannerEvents.length > 0 && (
-              <div className="p-3 rounded-xl bg-accent/10 border border-accent/30 text-xs animate-fade-up space-y-1">
-                <p className="font-bold text-accent flex items-center gap-1.5">
-                  <Check size={14} /> Existing Planner Profile Detected ({existingPlannerEvents.length} events)
+          <div className="space-y-5 animate-fade-up">
+            <div className="p-3.5 rounded-2xl flex items-start gap-3" style={{ backgroundColor: 'rgba(0,229,255,0.08)', border: '1px solid rgba(0,229,255,0.25)' }}>
+              <CreditCard size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} />
+              <div>
+                <p className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                  Automated Paystack Settlements
                 </p>
-                <p className="text-text-secondary leading-relaxed">
-                  This new event will be added to your account ({plannerEmail}). You can manage all your events under one login!
+                <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  Your ticket revenue settles automatically to this bank account via Paystack. Once the first ticket is sold, bank details lock for your security.
                 </p>
               </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                WhatsApp Number (for contact)
-              </label>
-              <input
-                type="tel"
-                placeholder="e.g. 08012345678"
-                value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
-                className="neu-input"
-              />
-              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-                Buyers &amp; buyers can reach you on WhatsApp for support
-              </p>
             </div>
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Password
+                Select Bank *
               </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter password (min. 8 characters)"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="neu-input pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-muted)' }}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Confirm Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  placeholder="Confirm password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="neu-input pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-muted)' }}
-                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ───────────────── STEP 5: PAYMENT ACCOUNT ───────────────── */}
-        {step === 4 && (
-          <div className="space-y-4 animate-fade-up">
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Payment / Settlement Account</h2>
-
-            <div
-              className="p-3 rounded-xl text-xs"
-              style={{ background: 'rgba(0,229,255,0.06)', border: '1px solid rgba(0,229,255,0.2)' }}
-            >
-              <p className="font-semibold mb-1" style={{ color: 'var(--accent)' }}>How Payments Work</p>
-              <p style={{ color: 'var(--text-secondary)' }}>
-                All ticket payments go to TiKeTi first. After your event, the platform fee is deducted and the rest is sent to your account below. You can track all sales in your dashboard.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Bank Name
-              </label>
-              <select value={bankName} onChange={(e) => setBankName(e.target.value)} className="neu-input">
-                <option value="">-- Select Bank --</option>
-                {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+              <select
+                value={selectedBankCode}
+                onChange={(e) => handleBankChange(e.target.value)}
+                className="neu-input w-full"
+              >
+                {banks.map((b) => (
+                  <option key={b.code} value={b.code}>
+                    {b.name}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Account Number
+                NUBAN Account Number (10 digits) *
               </label>
               <input
                 type="text"
-                placeholder="10-digit account number"
                 maxLength={10}
+                placeholder="0123456789"
                 value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                className="neu-input font-mono"
+                onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
+                className="neu-input w-full font-mono text-base tracking-widest"
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Account Name
-              </label>
-              <input
-                type="text"
-                placeholder="Name on account"
-                value={accountName}
-                onChange={(e) => setAccountName(e.target.value)}
-                className="neu-input"
-              />
-            </div>
-
-            <div
-              className="p-4 rounded-xl space-y-1.5 text-xs"
-              style={{ background: 'var(--canvas)', border: '1px solid var(--border)' }}
-            >
-              <p className="font-semibold text-sm mb-2" style={{ color: 'var(--text-primary)' }}>Registration Summary</p>
-              <div className="flex justify-between">
-                <span style={{ color: 'var(--text-secondary)' }}>Party Type</span>
-                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                  {partyType === 'campus' ? 'Campus Party' : 'Off-Campus Event'}
-                </span>
-              </div>
-              {partyType === 'campus' && (
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--text-secondary)' }}>University</span>
-                  <span className="font-medium truncate ml-4 text-right" style={{ color: 'var(--text-primary)' }}>
-                    {university || universityCustom}
+            {/* Account Name resolution card */}
+            <div className="p-4 rounded-2xl" style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                Verified Account Name
+              </span>
+              {resolvingAccount ? (
+                <div className="flex items-center gap-2 py-1 text-xs" style={{ color: 'var(--accent)' }}>
+                  <Loader2 size={16} className="animate-spin" />
+                  Verifying account details with Paystack...
+                </div>
+              ) : accountName ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold font-mono" style={{ color: 'var(--text-primary)' }}>
+                    {accountName}
+                  </span>
+                  <span className="flex items-center gap-1 text-[11px] font-semibold text-green-400">
+                    <CheckCircle2 size={14} /> Verified
                   </span>
                 </div>
-              )}
-              {partyType === 'off_campus' && (
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--text-secondary)' }}>Location</span>
-                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{state}, {location}</span>
+              ) : accountResolveError ? (
+                <div className="flex items-center gap-1.5 text-xs text-red-400 py-1">
+                  <AlertCircle size={14} />
+                  {accountResolveError}
                 </div>
+              ) : (
+                <span className="text-xs text-gray-500 italic">
+                  Enter 10-digit account number to auto-verify with Paystack
+                </span>
               )}
-              <div className="flex justify-between">
-                <span style={{ color: 'var(--text-secondary)' }}>Event</span>
-                <span className="font-medium truncate ml-4 text-right" style={{ color: 'var(--text-primary)' }}>{eventName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: 'var(--text-secondary)' }}>Tickets</span>
-                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{tickets.length} tier(s)</span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: 'var(--text-secondary)' }}>Name</span>
-                <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{plannerName}</span>
-              </div>
             </div>
           </div>
         )}
 
-        {/* ── Navigation buttons ── */}
-        <div className="flex gap-3 mt-6">
-          {step > 0 && (
-            <Button variant="secondary" onClick={() => setStep(step - 1)} icon={ArrowLeft}>
-              Back
-            </Button>
-          )}
-          {step < STEPS.length - 1 ? (
-            <Button variant="primary" className="flex-1" onClick={handleNext} icon={ArrowRight}>
-              Continue
-            </Button>
-          ) : (
-            <Button variant="primary" className="flex-1" onClick={handleSubmit} loading={loading}>
-              Complete Registration
-            </Button>
-          )}
-        </div>
+        {/* ───────────────── NAVIGATION BUTTONS ───────────────── */}
+        <div
+          className="fixed bottom-0 left-0 right-0 p-4 border-t backdrop-blur-xl z-40"
+          style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)' }}
+        >
+          <div className="max-w-xl mx-auto flex items-center gap-3">
+            {step > 0 && (
+              <Button
+                variant="outline"
+                onClick={handlePrev}
+                disabled={loading}
+                className="flex items-center gap-1.5"
+              >
+                <ArrowLeft size={16} /> Back
+              </Button>
+            )}
 
-        <p className="text-center text-xs mt-4" style={{ color: 'var(--text-muted)' }}>
-          Already have an account?{' '}
-          <Link to="/login" style={{ color: 'var(--accent)' }} className="font-semibold">
-            Sign in
-          </Link>
-        </p>
+            {step < STEPS.length - 1 ? (
+              <Button
+                variant="primary"
+                onClick={handleNext}
+                className="flex-1 flex items-center justify-center gap-1.5"
+              >
+                Continue <ArrowRight size={16} />
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={handleSubmit}
+                loading={loading}
+                className="flex-1 flex items-center justify-center gap-1.5"
+              >
+                Submit Event for Approval <Check size={16} />
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+
+// Backward-compat alias (file kept as EventPlannerRegistration for now)
+export const EventPlannerRegistration = EventOrganizerRegistration;
+export default EventOrganizerRegistration;

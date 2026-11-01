@@ -4,6 +4,7 @@ import type { AppEnv, JwtPayload } from '../index.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { supabase } from '../index.js';
 import { generateTicketCode } from '../utils/tickets.js';
+import { verifyWebhookSignature } from '../services/paystack.js';
 
 // =============================================
 // ROUTES
@@ -11,179 +12,140 @@ import { generateTicketCode } from '../utils/tickets.js';
 
 export const webhookRoutes = new Hono<AppEnv>();
 
-/**
- * Timing-safe string comparison to prevent timing attacks
- */
-function timingSafeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    // Still do comparison to avoid leaking length info via timing
-    const bufA = Buffer.from(a);
-    const bufB = Buffer.from(a); // Compare against itself
-    crypto.timingSafeEqual(bufA, bufB);
-    return false;
-  }
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
-
-// Monnify webhook - NO auth required (verified by signature)
-webhookRoutes.post('/monnify', async (c) => {
-  const signature = c.req.header('x-monnify-signature');
+// ── Paystack Webhook (signature verified via HMAC-SHA512) ──
+webhookRoutes.post('/paystack', async (c) => {
+  const signature = c.req.header('x-paystack-signature');
   
   if (!signature) {
-    return c.json({ error: 'Missing signature' }, 401);
+    return c.json({ error: 'Missing x-paystack-signature header' }, 401);
+  }
+
+  const rawBody = await c.req.text();
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+
+  if (!secret) {
+    console.error('PAYSTACK_SECRET_KEY not configured');
+    return c.json({ error: 'Webhook not configured' }, 500);
+  }
+
+  const isValid = verifyWebhookSignature(rawBody, signature, secret);
+  if (!isValid) {
+    console.warn('[Webhook] Invalid Paystack signature');
+    return c.json({ error: 'Invalid signature' }, 401);
   }
 
   let body: any;
   try {
-    body = await c.req.json();
+    body = JSON.parse(rawBody);
   } catch {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  // Verify webhook signature with timing-safe comparison
-  const secret = process.env.MONNIFY_WEBHOOK_SECRET;
-  if (!secret) {
-    console.error('MONNIFY_WEBHOOK_SECRET not configured');
-    return c.json({ error: 'Webhook not configured' }, 500);
-  }
+  const { event, data } = body;
+  console.log(`[Webhook] Paystack event received: ${event}`);
 
-  const hash = crypto
-    .createHmac('sha512', secret)
-    .update(JSON.stringify(body))
-    .digest('hex');
+  if (event === 'charge.success') {
+    const reference = data.reference;
+    const amountKobo = data.amount;
 
-  if (!timingSafeCompare(hash, signature)) {
-    console.warn('Invalid Monnify webhook signature');
-    return c.json({ error: 'Invalid signature' }, 401);
-  }
+    if (!reference) {
+      return c.json({ error: 'Missing reference' }, 400);
+    }
 
-  const { eventData } = body;
-  
-  if (!eventData) {
-    return c.json({ error: 'Invalid webhook payload' }, 400);
-  }
-
-  const { paymentReference, paymentStatus, amountPaid } = eventData;
-
-  if (!paymentReference || !paymentStatus) {
-    return c.json({ error: 'Missing required fields' }, 400);
-  }
-
-  console.log(`[Webhook] Monnify: ${paymentReference} → ${paymentStatus}`);
-
-  // Find order
-  const { data: order } = await supabase
-    .from('orders')
-    .select('*')
-    .eq('payment_reference', paymentReference)
-    .single();
-
-  if (!order) {
-    console.warn(`[Webhook] Order not found for: ${paymentReference}`);
-    return c.json({ error: 'Order not found' }, 404);
-  }
-
-  // Check if already processed (idempotency)
-  if (order.status === 'paid') {
-    console.log(`[Webhook] Order already processed: ${paymentReference}`);
-    return c.json({ success: true, message: 'Already processed' });
-  }
-
-  // Verify amount
-  if (amountPaid !== order.total) {
-    console.warn(`[Webhook] Amount mismatch: expected ${order.total}, got ${amountPaid}`);
-
-    await supabase
+    // Find order
+    const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .update({ 
-        status: 'amount_mismatch',
-        amount_paid: amountPaid,
-        monnify_response: body
-      })
-      .eq('id', order.id);
+      .select('*, event:events(id, organizer_id)')
+      .or(`reference.eq.${reference},paystack_reference.eq.${reference},payment_reference.eq.${reference}`)
+      .single();
 
-    return c.json({ success: true, message: 'Amount mismatch recorded' });
-  }
+    if (orderErr || !order) {
+      console.warn(`[Webhook] Order not found for reference: ${reference}`);
+      return c.json({ success: true, message: 'Order not found, acknowledged' });
+    }
 
-  // Check expiry
-  if (new Date() > new Date(order.expires_at)) {
-    console.warn(`[Webhook] Payment received after expiry: ${paymentReference}`);
+    // Idempotency check
+    if (order.status === 'paid') {
+      console.log(`[Webhook] Order already processed: ${reference}`);
+      return c.json({ success: true, message: 'Already processed' });
+    }
 
-    await supabase
-      .from('orders')
-      .update({ 
-        status: 'late_payment',
-        monnify_response: body
-      })
-      .eq('id', order.id);
+    // Verify amount (kobo vs naira * 100)
+    const expectedKobo = Math.round((order.gross || order.total) * 100);
+    if (amountKobo < expectedKobo) {
+      console.warn(`[Webhook] Amount mismatch for ${reference}: expected ${expectedKobo}, got ${amountKobo}`);
+      await supabase
+        .from('orders')
+        .update({ 
+          status: 'amount_mismatch',
+          amount_paid: amountKobo / 100,
+        })
+        .eq('id', order.id);
 
-    return c.json({ success: true, message: 'Late payment recorded' });
-  }
+      return c.json({ success: true, message: 'Amount mismatch recorded' });
+    }
 
-  // Process successful payment
-  if (paymentStatus === 'PAID') {
-    // Update order status
+    const paidAt = new Date().toISOString();
+
+    // Mark order as paid
     await supabase
       .from('orders')
       .update({ 
         status: 'paid',
-        paid_at: new Date().toISOString(),
-        monnify_response: body
+        paid_at: paidAt
       })
       .eq('id', order.id);
 
-    // Get order lines
-    const { data: orderLines } = await supabase
-      .from('order_lines')
-      .select('*, ticket_type:ticket_types(name, admits)')
+    // Lock organizer bank details once first paid ticket is sold
+    if (order.event?.organizer_id) {
+      await supabase
+        .from('event_organizers')
+        .update({
+          bank_locked: true,
+          first_paid_at: paidAt
+        })
+        .eq('id', order.event.organizer_id);
+    }
+
+    // Check if tickets already exist (idempotency)
+    const { data: existingTickets } = await supabase
+      .from('tickets')
+      .select('id')
       .eq('order_id', order.id);
 
-    // Generate tickets
-    for (const line of orderLines || []) {
-      const ticketType = (line as any).ticket_type;
-      const admits = ticketType.admits || 1;
+    if (!existingTickets || existingTickets.length === 0) {
+      // Get order lines
+      const { data: orderLines } = await supabase
+        .from('order_lines')
+        .select('*, ticket_type:ticket_types(name, admits)')
+        .eq('order_id', order.id);
 
-      // Create one ticket per quantity
-      for (let i = 0; i < line.quantity; i++) {
-        const code = generateTicketCode();
-        
-        await supabase
-          .from('tickets')
-          .insert({
-            order_id: order.id,
-            ticket_type_id: line.ticket_type_id,
-            code,
-            admits,
-            buyer_name: order.buyer_name,
-            buyer_email: order.buyer_email
-          });
+      // Generate tickets
+      for (const line of orderLines || []) {
+        const ticketType = (line as any).ticket_type;
+        const admits = ticketType?.admits || 1;
+
+        for (let i = 0; i < line.quantity; i++) {
+          const code = generateTicketCode();
+          await supabase
+            .from('tickets')
+            .insert({
+              order_id: order.id,
+              ticket_type_id: line.ticket_type_id,
+              code,
+              admits,
+              buyer_name: order.buyer_name,
+              buyer_email: order.buyer_email
+            });
+        }
       }
     }
 
-    // Create payout record
-    const ownerAmount = order.total - order.fees;
-    await supabase
-      .from('payouts')
-      .insert({
-        order_id: order.id,
-        owner_id: order.owner_id,
-        gross: order.total,
-        fees: order.fees,
-        net: ownerAmount,
-        status: 'pending'
-      });
+    // Note: Paystack subaccount handles the settlement split automatically.
+    // No separate payout record needed — the organizer_share is already
+    // tracked on the order (organizer_share column).
 
-    console.log(`[Webhook] Payment processed: ${paymentReference}`);
-  } else if (paymentStatus === 'FAILED') {
-    await supabase
-      .from('orders')
-      .update({ 
-        status: 'failed',
-        monnify_response: body
-      })
-      .eq('id', order.id);
-
-    console.log(`[Webhook] Payment failed: ${paymentReference}`);
+    console.log(`[Webhook] Paystack payment successfully processed for order: ${reference}`);
   }
 
   return c.json({ success: true });
@@ -191,10 +153,9 @@ webhookRoutes.post('/monnify', async (c) => {
 
 // Reconcile pending orders (admin only - cron job endpoint)
 webhookRoutes.post('/reconcile', requireAdmin, async (c) => {
-  // Get pending orders that have expired
   const { data: pendingOrders } = await supabase
     .from('orders')
-    .select('id, payment_reference, expires_at')
+    .select('id, reference, expires_at')
     .eq('status', 'pending')
     .lt('expires_at', new Date().toISOString());
 
@@ -203,18 +164,14 @@ webhookRoutes.post('/reconcile', requireAdmin, async (c) => {
   }
 
   let reconciled = 0;
-
   for (const order of pendingOrders) {
-    // Mark as expired
     await supabase
       .from('orders')
       .update({ status: 'expired' })
       .eq('id', order.id);
-
     reconciled++;
   }
 
-  console.log(`[Reconcile] ${reconciled} orders reconciled`);
-
+  console.log(`[Reconcile] ${reconciled} orders marked expired`);
   return c.json({ message: 'Reconciliation complete', count: reconciled });
 });
