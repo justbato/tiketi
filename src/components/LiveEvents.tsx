@@ -136,7 +136,7 @@ export function LiveEventsPage() {
     api.events.list().then(list => {
       const active = list.filter(e => e.status === 'active');
       if (active.length > 0) setEvents(active);
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // Build category chips dynamically from loaded events.
@@ -240,9 +240,8 @@ export function LiveEventsPage() {
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(catId)}
-                    className={`neu-button px-4 py-2 text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                      isSelected ? 'active text-accent' : ''
-                    }`}
+                    className={`neu-button px-4 py-2 text-xs font-semibold flex items-center gap-1.5 transition-all ${isSelected ? 'active text-accent' : ''
+                      }`}
                   >
                     {cat === 'All' && <Sparkles size={14} />}
                     <span>{cat}</span>
@@ -840,11 +839,10 @@ export function PublicEventPage() {
                   return (
                     <div
                       key={tt.id}
-                      className={`p-4 rounded-2xl transition-all border ${
-                        inCart > 0
+                      className={`p-4 rounded-2xl transition-all border ${inCart > 0
                           ? 'neu-card-inset border-accent/40'
                           : 'neu-card border-[var(--shadow-dark)]'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
@@ -900,11 +898,10 @@ export function PublicEventPage() {
                             type="button"
                             onClick={() => removeFromCart(tt.id)}
                             disabled={inCart === 0}
-                            className={`rounded-lg flex items-center justify-center transition-all ${
-                              inCart > 0
+                            className={`rounded-lg flex items-center justify-center transition-all ${inCart > 0
                                 ? 'text-red-500 hover:bg-red-500/10 cursor-pointer shadow-sm active:scale-95'
                                 : 'text-gray-400 opacity-25 cursor-not-allowed'
-                            }`}
+                              }`}
                             style={{
                               minHeight: '34px',
                               height: '34px',
@@ -1064,7 +1061,7 @@ export function CheckoutPage({
           showToast('Payment confirmed! Opening your tickets...', 'success');
           navigate('/tickets/' + ref);
         }
-      } catch {}
+      } catch { }
       if (attempts > 30) {
         clearInterval(interval);
         setVerifying(false);
@@ -1080,6 +1077,7 @@ export function CheckoutPage({
     setLoading(true);
 
     try {
+      try { sessionStorage.setItem('tiketi_buyer_email', buyerEmail.trim()); } catch { }
       // 1. Create order on server and initialize Paystack transaction
       const res = await api.orders.create({
         event_id: event.id,

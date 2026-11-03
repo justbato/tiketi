@@ -5,10 +5,10 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { supabase } from '../index.js';
 import { generateOrderRef } from '../utils/codes.js';
 import { generateTicketCode } from '../utils/tickets.js';
-import { 
-  initializeTransaction, 
-  calculateSplit, 
-  verifyTransaction 
+import {
+  initializeTransaction,
+  calculateSplit,
+  verifyTransaction
 } from '../services/paystack.js';
 
 // =============================================
@@ -36,7 +36,7 @@ export const orderRoutes = new Hono<AppEnv>();
 // Create order & initialize Paystack transaction (public route)
 orderRoutes.post('/', async (c) => {
   let body: z.infer<typeof createOrderSchema>;
-  
+
   try {
     body = createOrderSchema.parse(await c.req.json());
   } catch {
@@ -55,8 +55,8 @@ orderRoutes.post('/', async (c) => {
   }
 
   if (event.approval_status !== 'approved') {
-    return c.json({ 
-      error: 'This event is currently pending administrator approval and is not accepting ticket sales.' 
+    return c.json({
+      error: 'This event is currently pending administrator approval and is not accepting ticket sales.'
     }, 400);
   }
 
@@ -112,8 +112,8 @@ orderRoutes.post('/', async (c) => {
     const available = ticketType.quantity - totalSold;
 
     if (item.quantity > available) {
-      return c.json({ 
-        error: `Only ${available} ${ticketType.name} tickets available` 
+      return c.json({
+        error: `Only ${available} ${ticketType.name} tickets available`
       }, 400);
     }
 
@@ -191,7 +191,7 @@ orderRoutes.post('/', async (c) => {
   // Initialize Paystack payment
   try {
     const paystackSubaccount = event.paystack_subaccount_code || '';
-    
+
     const payment = await initializeTransaction({
       email: body.buyer_email,
       amount_kobo: split.gross_kobo,
@@ -199,6 +199,7 @@ orderRoutes.post('/', async (c) => {
       subaccount_code: paystackSubaccount,
       transaction_charge_kobo: split.platform_fee_kobo,
       fee_bearer: 'subaccount',
+      callback_url: `${(process.env.FRONTEND_URL || 'https://tiketi.ng').split(',')[0].trim()}/payment/callback`,
       metadata: {
         order_id: order.id,
         order_ref: orderRef,
@@ -211,7 +212,7 @@ orderRoutes.post('/', async (c) => {
 
     await supabase
       .from('orders')
-      .update({ 
+      .update({
         payment_reference: payment.reference,
         paystack_reference: payment.reference,
       })
@@ -455,9 +456,9 @@ orderRoutes.get('/:reference', requireAuth, async (c) => {
       .eq('id', order.event_id)
       .single();
 
-    const isAuthorized = 
-      event?.organizer_id === user.id || 
-      event?.planner_id === user.id || 
+    const isAuthorized =
+      event?.organizer_id === user.id ||
+      event?.planner_id === user.id ||
       (event as any)?.owner_id === user.id;
 
     if (!isAuthorized) {

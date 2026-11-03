@@ -31,6 +31,7 @@ import { EventPlannerRegistration as EventOrganizerRegistration } from './compon
 import { LoginPage, InviteConfirmPage } from './components/LoginPage';
 import { AdminLoginPage } from './components/AdminLoginPage';
 import { TicketPass } from './components/TicketPass';
+import PaymentCallback from './components/PaymentCallback';
 
 // Alias for backward compatibility
 const BentoCard = NeuCard;
@@ -40,11 +41,11 @@ import {
   formatNaira, formatDate, formatDateTime, generateTicketCode,
   type Event, type TicketType, type Model, type GateStaff
 } from './lib/data';
-import { 
-  api, 
-  getStoredModels, 
-  saveStoredModels, 
-  getStoredStaff, 
+import {
+  api,
+  getStoredModels,
+  saveStoredModels,
+  getStoredStaff,
   saveStoredStaff,
   getStoredEvents,
   saveStoredEvents,
@@ -229,12 +230,12 @@ function GlobalFloatingNav() {
   const portalPath = authUser?.role === 'admin'
     ? '/admin'
     : (authUser?.role === 'organizer' || authUser?.role === 'planner')
-    ? '/owner'
-    : authUser?.role === 'model'
-    ? '/model'
-    : authUser?.role === 'gate'
-    ? '/verify'
-    : '/login';
+      ? '/owner'
+      : authUser?.role === 'model'
+        ? '/model'
+        : authUser?.role === 'gate'
+          ? '/verify'
+          : '/login';
 
   const portalLabel = authUser ? 'Dashboard' : 'Sign In';
 
@@ -711,7 +712,7 @@ function VerificationPage() {
     if (!normalized) return;
     const ticket = ticketsList.find(t => t.code.replace(/[\s-]/g, '').toUpperCase() === normalized);
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
+
     if (!ticket) {
       setResult('unknown');
       setTicketInfo(null);
@@ -1012,7 +1013,7 @@ function ModelDashboard() {
           <div className="flex gap-2 mt-3">
             <Button variant="secondary" size="sm" icon={Share2} onClick={() => {
               if (navigator.share) {
-                navigator.share({ title: 'Buy Event Tickets', url: `https://tikiti.ng/e/evt_1?ref=${model.referralCode}` }).catch(() => {});
+                navigator.share({ title: 'Buy Event Tickets', url: `https://tikiti.ng/e/evt_1?ref=${model.referralCode}` }).catch(() => { });
               } else {
                 navigator.clipboard.writeText(`https://tikiti.ng/e/evt_1?ref=${model.referralCode}`);
                 showToast('Referral link copied to clipboard!', 'success');
@@ -1079,7 +1080,7 @@ function OwnerEvents() {
   try {
     const raw = localStorage.getItem('tiketi_user');
     if (raw) user = JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) { }
 
   // Filter to organizer's specific event in 1 Organizer = 1 Event architecture
   const myEvents = events.filter(e => {
@@ -1940,7 +1941,7 @@ function AdminEvents() {
 
   useEffect(() => {
     loadPending();
-    api.auth.getBanks().then(setBanksList).catch(() => {});
+    api.auth.getBanks().then(setBanksList).catch(() => { });
   }, []);
 
   const handleApprove = async (eventId: string, eventName: string) => {
@@ -2036,33 +2037,30 @@ function AdminEvents() {
       <div className="flex items-center gap-2 mb-5 border-b border-[var(--border)] pb-2">
         <button
           onClick={() => setActiveTab('pending')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-            activeTab === 'pending'
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${activeTab === 'pending'
               ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
               : 'text-text-secondary hover:text-text-primary'
-          }`}
+            }`}
         >
           <Clock size={14} /> Pending Approval ({pendingEvents.length})
         </button>
 
         <button
           onClick={() => setActiveTab('live')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-            activeTab === 'live'
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${activeTab === 'live'
               ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
               : 'text-text-secondary hover:text-text-primary'
-          }`}
+            }`}
         >
           <CheckCircle2 size={14} /> Live Events ({liveEvents.length})
         </button>
 
         <button
           onClick={() => setActiveTab('ended')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-            activeTab === 'ended'
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${activeTab === 'ended'
               ? 'bg-accent/15 text-accent border border-accent/30'
               : 'text-text-secondary hover:text-text-primary'
-          }`}
+            }`}
         >
           <Calendar size={14} /> Ended / Concluded ({endedEvents.length})
         </button>
@@ -2341,7 +2339,7 @@ function AdminSettings() {
     api.admin.getSettings().then(s => {
       if (s?.fee_percent != null) setFeePercent(Number(s.fee_percent));
       if (s?.fee_bearer) setFeeBearer(s.fee_bearer);
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   const handleSave = async () => {
@@ -2687,7 +2685,7 @@ function LandingPage() {
                 <p className="text-[11px] text-text-muted">University & Event Ticketing Platform</p>
               </div>
             </div>
-            
+
             <div className="flex items-center flex-wrap justify-center gap-5 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
               <Link to="/owner" className="hover:text-accent">Event Organizer</Link>
               <Link to="/events" className="hover:text-accent">Live Events</Link>
@@ -2758,7 +2756,7 @@ function CreateEventForm() {
   try {
     const raw = localStorage.getItem('tiketi_user');
     if (raw) user = JSON.parse(raw);
-  } catch (e) {}
+  } catch (e) { }
 
   const hasEvent = events.some(e => {
     if (user?.event_id && e.id === user.event_id) return true;
@@ -3294,12 +3292,16 @@ function OrderRedownload() {
   }, []);
 
   useEffect(() => {
-    // Don't auto-load from URL — email is required and must come from the form
     if (orderRef) {
       setRef(orderRef);
-      // Intentionally NOT calling loadOrderByRef here: we need the user's email first
+      let saved = '';
+      try { saved = sessionStorage.getItem('tiketi_buyer_email') || ''; } catch { }
+      if (saved) {
+        setEmail(saved);
+        loadOrderByRef(orderRef, saved);
+      }
     }
-  }, [orderRef]);
+  }, [orderRef, loadOrderByRef]);
 
   const handleSearch = async () => {
     setSearched(true);
@@ -3545,26 +3547,27 @@ export default function App() {
         <Route path="/admin/settings" element={<AdminGuard><AppLayout role="admin"><AdminSettings /></AppLayout></AdminGuard>} />
         <Route path="/admin/audit" element={<AdminGuard><AppLayout role="admin"><AdminAudit /></AppLayout></AdminGuard>} />
         {/* Event Organizer */}
-        <Route path="/owner" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerDashboard /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerEvents /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events/new" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><CreateEventForm /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events/:eventId" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerEventDetail /></AppLayout></RoleGuard>} />
-        <Route path="/owner/events/:eventId/tickets/new" element={<RoleGuard roles={['organizer','planner','owner']}><TicketTypeForm /></RoleGuard>} />
-        <Route path="/owner/events/:eventId/checkins" element={<RoleGuard roles={['organizer','planner','owner']}><CheckInHistory /></RoleGuard>} />
-        <Route path="/owner/models" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerModels /></AppLayout></RoleGuard>} />
-        <Route path="/owner/models/invite" element={<RoleGuard roles={['organizer','planner','owner']}><ModelInviteForm /></RoleGuard>} />
-        <Route path="/owner/staff" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerStaff /></AppLayout></RoleGuard>} />
-        <Route path="/owner/staff/new" element={<RoleGuard roles={['organizer','planner','owner']}><StaffInviteForm /></RoleGuard>} />
-        <Route path="/owner/earnings" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerEarnings /></AppLayout></RoleGuard>} />
-        <Route path="/owner/settings" element={<RoleGuard roles={['organizer','planner','owner']}><AppLayout role="owner"><OwnerSettings /></AppLayout></RoleGuard>} />
+        <Route path="/owner" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerDashboard /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerEvents /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events/new" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><CreateEventForm /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events/:eventId" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerEventDetail /></AppLayout></RoleGuard>} />
+        <Route path="/owner/events/:eventId/tickets/new" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><TicketTypeForm /></RoleGuard>} />
+        <Route path="/owner/events/:eventId/checkins" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><CheckInHistory /></RoleGuard>} />
+        <Route path="/owner/models" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerModels /></AppLayout></RoleGuard>} />
+        <Route path="/owner/models/invite" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><ModelInviteForm /></RoleGuard>} />
+        <Route path="/owner/staff" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerStaff /></AppLayout></RoleGuard>} />
+        <Route path="/owner/staff/new" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><StaffInviteForm /></RoleGuard>} />
+        <Route path="/owner/earnings" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerEarnings /></AppLayout></RoleGuard>} />
+        <Route path="/owner/settings" element={<RoleGuard roles={['organizer', 'planner', 'owner']}><AppLayout role="owner"><OwnerSettings /></AppLayout></RoleGuard>} />
         {/* Model & Gate */}
         <Route path="/model" element={<RoleGuard roles={['model']}><ModelDashboard /></RoleGuard>} />
-        <Route path="/verify" element={<RoleGuard roles={['gate','organizer','planner','owner']}><VerificationPage /></RoleGuard>} />
-        <Route path="/verify/:eventId" element={<RoleGuard roles={['gate','organizer','planner','owner']}><VerificationPage /></RoleGuard>} />
+        <Route path="/verify" element={<RoleGuard roles={['gate', 'organizer', 'planner', 'owner']}><VerificationPage /></RoleGuard>} />
+        <Route path="/verify/:eventId" element={<RoleGuard roles={['gate', 'organizer', 'planner', 'owner']}><VerificationPage /></RoleGuard>} />
         {/* Buyer / Public */}
         <Route path="/events" element={<LiveEventsPage />} />
         <Route path="/event/:eventId" element={<PublicEventPage />} />
         <Route path="/tickets/:orderRef" element={<OrderRedownload />} />
+        <Route path="/payment/callback" element={<PaymentCallback />} />
       </Routes>
       <GlobalFloatingNav />
     </BrowserRouter>
