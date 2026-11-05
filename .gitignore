@@ -10,3 +10,4 @@ dist
 *.tar
 server/dist/
 database/
+.env.example
