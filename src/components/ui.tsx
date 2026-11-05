@@ -129,7 +129,7 @@ export function StatCard({ label, value, icon: Icon, trend, delay = 0 }: StatCar
 // ========================================
 interface ButtonProps {
   children?: ReactNode;
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'outline';
   size?: 'sm' | 'md' | 'lg';
   icon?: LucideIcon;
   loading?: boolean;
@@ -146,10 +146,16 @@ export function Button({ children, variant = 'secondary', size = 'md', icon: Ico
     lg: 'px-8 py-4 text-base'
   };
 
+  const variantClass = variant === 'primary' 
+    ? 'neu-button-primary' 
+    : variant === 'outline' 
+    ? 'border border-[var(--border)] bg-transparent hover:bg-canvas text-text-primary' 
+    : '';
+
   return (
     <button
       type={type}
-      className={`neu-button ${variant === 'primary' ? 'neu-button-primary' : ''} ${sizeClasses[size]} ${loading ? 'opacity-70 pointer-events-none' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+      className={`neu-button ${variantClass} ${sizeClasses[size]} ${loading ? 'opacity-70 pointer-events-none' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
       onClick={onClick}
       disabled={disabled || loading}
     >

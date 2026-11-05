@@ -103,7 +103,7 @@ staffRoutes.post('/', async (c) => {
     details: `Invited gate staff: ${body.name} (${body.email}) for event ${body.event_id}`
   });
 
-  const frontendUrl = process.env.FRONTEND_URL || 'https://tiketi.ng';
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim();
   const inviteUrl = `${frontendUrl}/invite?token=${inviteToken}`;
 
   return c.json({

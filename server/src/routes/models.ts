@@ -117,7 +117,7 @@ modelRoutes.post('/invite', requireAuth, async (c) => {
     details: `Invited model: ${body.name} (${body.email})`
   });
 
-  const frontendUrl = process.env.FRONTEND_URL || 'https://tiketi.ng';
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim();
   const inviteUrl = `${frontendUrl}/invite?token=${inviteToken}`;
 
   return c.json({
@@ -238,7 +238,9 @@ modelRoutes.put('/:id', requireAuth, async (c) => {
 
   // Audit log
   await supabase.from('audit_logs').insert({
+    actor_id: user.id,
     user_id: user.id,
+    actor_role: user.role,
     action: 'model.update',
     entity_type: 'model',
     entity_id: id,
@@ -279,7 +281,9 @@ modelRoutes.delete('/:id', requireAuth, async (c) => {
 
   // Audit log
   await supabase.from('audit_logs').insert({
+    actor_id: user.id,
     user_id: user.id,
+    actor_role: user.role,
     action: 'model.remove',
     entity_type: 'model',
     entity_id: id,

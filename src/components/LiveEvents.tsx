@@ -12,10 +12,12 @@ import {
   SuccessCheckmark, ProgressBar, ThemeToggle, showToast
 } from './ui';
 import {
-  mockEvents, mockTicketTypes, mockModels, formatNaira, formatDate,
+  formatNaira, formatDate,
   generateTicketCode, type Event, type TicketType, type Model
 } from '../lib/data';
-import { api, getStoredEvents, getStoredTicketTypes, getStoredOrders, saveStoredOrders } from '../lib/api';
+import { api } from '../lib/api';
+import { getAbsoluteImageUrl } from '../lib/config';
+import { ShareButton } from './ShareModal';
 import { TicketPass } from './TicketPass';
 
 const TIcon = TicketIcon;
@@ -126,17 +128,16 @@ export function PublicNavHeader({ activeTab = 'events' }: { activeTab?: 'events'
 // LIVE EVENTS & BUY TICKETS CATALOG PAGE
 // ========================================
 export function LiveEventsPage() {
-  const [events, setEvents] = useState<Event[]>(() => {
-    return getStoredEvents().filter(e => e.status === 'active');
-  });
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
   useEffect(() => {
+    setLoading(true);
     api.events.list().then(list => {
-      const active = list.filter(e => e.status === 'active');
-      if (active.length > 0) setEvents(active);
-    }).catch(() => { });
+      setEvents(list.filter(e => e.status === 'active'));
+    }).catch(() => { }).finally(() => setLoading(false));
   }, []);
 
   // Build category chips dynamically from loaded events.
@@ -278,26 +279,33 @@ export function LiveEventsPage() {
             )}
           </div>
 
-          {filteredEvents.length === 0 ? (
+          {filteredEvents.length === 0 && loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1,2,3].map(i => (
+                <div key={i} className="card animate-pulse" style={{ height: 340 }} />
+              ))}
+            </div>
+          ) : filteredEvents.length === 0 ? (
             <NeuCard className="text-center py-16">
               <Calendar size={48} className="mx-auto mb-3 opacity-30 text-accent" />
               <h3 className="text-lg font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
-                No events found
+                {searchQuery ? 'No events found' : 'No events yet'}
               </h3>
               <p className="text-sm text-text-secondary max-w-sm mx-auto mb-6">
-                We couldn't find any events matching "{searchQuery}". Try a different keyword or reset filters.
+                {searchQuery
+                  ? `We couldn't find any events matching "${searchQuery}". Try a different keyword or reset filters.`
+                  : 'There are no upcoming events at the moment. Check back soon!'}
               </p>
-              <Button onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }} variant="primary" size="sm">
-                View All Events
-              </Button>
+              {searchQuery && (
+                <Button onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }} variant="primary" size="sm">
+                  View All Events
+                </Button>
+              )}
             </NeuCard>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredEvents.map((evt, idx) => {
-                const tickets = mockTicketTypes.filter(t => t.eventId === evt.id && !t.archived);
-                const minPrice = tickets.length > 0 ? Math.min(...tickets.map(t => t.price)) : 3000;
-                const totalSold = tickets.reduce((s, t) => s + t.sold, 0);
-                const posterImg = evt.posterUrl || evt.bannerUrl || '/posters/unifest_concert.jpg';
+                const posterImg = getAbsoluteImageUrl(evt.posterUrl || evt.bannerUrl) || '/default-cover.png';
 
                 return (
                   <Link
@@ -342,7 +350,7 @@ export function LiveEventsPage() {
                         {/* Starting price tag on poster bottom */}
                         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-white">
                           <span className="text-xs bg-black/50 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10">
-                            From <span className="font-bold text-cyan-300">{formatNaira(minPrice)}</span>
+                            <span className="font-bold text-cyan-300">Tickets Available</span>
                           </span>
                           <span className="text-xs text-white/80 flex items-center gap-1 bg-black/40 px-2 py-1 rounded-lg">
                             <Users size={12} />
@@ -385,25 +393,15 @@ export function LiveEventsPage() {
                             <span className="truncate">{evt.venue}</span>
                           </div>
 
-                          {/* Ticket Types Chips */}
+                          {/* Ticket Types — shown when available */}
                           <div className="mb-4">
                             <p className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
-                              Available Ticket Types
+                              Ticket Sales
                             </p>
                             <div className="flex flex-wrap gap-1.5">
-                              {tickets.slice(0, 3).map(tt => (
-                                <span
-                                  key={tt.id}
-                                  className="text-[11px] px-2 py-0.5 rounded-md neu-card-inset text-text-primary font-medium"
-                                >
-                                  {tt.name} ({formatNaira(tt.price)})
-                                </span>
-                              ))}
-                              {tickets.length > 3 && (
-                                <span className="text-[11px] px-2 py-0.5 rounded-md bg-accent/10 text-accent font-medium">
-                                  +{tickets.length - 3} more
-                                </span>
-                              )}
+                              <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-medium flex items-center gap-1">
+                                <Shield size={10} /> Tickets Available
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -515,11 +513,10 @@ export function PublicEventPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Load event by ID from storage or mock
-  const [event, setEvent] = useState<Event>(() => {
-    const list = getStoredEvents();
-    return list.find(e => e.id === eventId) || mockEvents.find(e => e.id === eventId) || mockEvents[0];
-  });
+  const [event, setEvent] = useState<Event | null>(null);
+  const [eventLoading, setEventLoading] = useState(true);
+  const [eventNotFound, setEventNotFound] = useState(false);
+  const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
 
   const [cart, setCart] = useState<{ [key: string]: number }>({});
   const [showCheckout, setShowCheckout] = useState(false);
@@ -531,9 +528,16 @@ export function PublicEventPage() {
   const isDirectSale = !refParam;
 
   useEffect(() => {
-    const list = getStoredEvents();
-    const found = list.find(e => e.id === eventId) || mockEvents.find(e => e.id === eventId);
-    if (found) setEvent(found);
+    if (!eventId) { setEventNotFound(true); setEventLoading(false); return; }
+    setEventLoading(true);
+    api.events.get(eventId).then(evt => {
+      if (!evt) { setEventNotFound(true); } else { setEvent(evt); }
+    }).catch(() => setEventNotFound(true)).finally(() => setEventLoading(false));
+  }, [eventId]);
+
+  useEffect(() => {
+    if (!eventId) return;
+    api.ticketTypes.list(eventId).then(list => setTicketTypes(list.filter(t => !t.archived))).catch(() => {});
   }, [eventId]);
 
   useEffect(() => {
@@ -549,10 +553,38 @@ export function PublicEventPage() {
     });
   }, [refParam]);
 
-  // Ticket types available for this event (from storage or mock)
-  const baseTickets = (getStoredTicketTypes().filter(t => t.eventId === event.id && !t.archived).length > 0
-    ? getStoredTicketTypes().filter(t => t.eventId === event.id && !t.archived)
-    : mockTicketTypes.filter(t => t.eventId === event.id && !t.archived));
+  // Show loading state
+  if (eventLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto" />
+          <p className="text-sm text-text-secondary">Loading event...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show not found
+  if (eventNotFound || !event) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <NeuCard className="max-w-md w-full p-8 text-center">
+          <Calendar size={48} className="mx-auto mb-4 opacity-30 text-accent" />
+          <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Event Not Found</h2>
+          <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
+            This event does not exist or is no longer available.
+          </p>
+          <Link to="/events">
+            <Button variant="primary" className="w-full">Browse Events</Button>
+          </Link>
+        </NeuCard>
+      </div>
+    );
+  }
+
+  // Ticket types available for this event (from API)
+  const baseTickets = ticketTypes;
 
   // Expand gender-priced tickets into distinct male and female selections
   const availableTickets: TicketType[] = baseTickets.flatMap(t => {
@@ -601,7 +633,7 @@ export function PublicEventPage() {
   const vat = fee * 0.075;
   const total = subtotal + fee + vat;
 
-  const posterImg = event.posterUrl || event.bannerUrl || '/posters/unifest_concert.jpg';
+  const posterImg = getAbsoluteImageUrl(event.posterUrl || event.bannerUrl) || '/default-cover.png';
 
   if (refError) {
     return (
@@ -646,7 +678,7 @@ export function PublicEventPage() {
       <PublicNavHeader activeTab="detail" />
 
       {/* Back button and quick breadcrumb */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2 flex items-center justify-between">
         <Link
           to="/events"
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-secondary hover:text-accent transition-colors"
@@ -654,6 +686,7 @@ export function PublicEventPage() {
           <ArrowLeft size={14} />
           <span>Back to All Events</span>
         </Link>
+        <ShareButton event={event} refCode={refParam} size="sm" />
       </div>
 
       {/* Hero Banner Section */}
@@ -1025,6 +1058,7 @@ export function CheckoutPage({
   subtotal: number;
   fee: number;
   isDirect: boolean;
+  model?: Model | null;
   onBack: () => void;
 }) {
   const navigate = useNavigate();
@@ -1335,7 +1369,7 @@ export function PaymentSuccess({
       type: item.name,
       admits: item.admits || 1,
       gender: item.gender,
-      ticketImageUrl: item.imageUrl || item.ticket_image_url || event.posterUrl || event.bannerUrl || '/posters/unifest_concert.jpg',
+      ticketImageUrl: item.imageUrl || item.ticket_image_url || event.posterUrl || event.bannerUrl || '/default-cover.png',
       eventName: event.name,
       eventVenue: event.venue,
       eventDate: event.eventDate

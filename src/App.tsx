@@ -35,27 +35,14 @@ import PaymentCallback from './components/PaymentCallback';
 
 // Alias for backward compatibility
 const BentoCard = NeuCard;
+import { Html5Qrcode } from 'html5-qrcode';
 import {
-  mockEvents, mockTicketTypes, mockModels, mockOrders, mockTickets,
-  mockGateStaff, mockPayouts, mockAuditLogs, mockSalesData,
   formatNaira, formatDate, formatDateTime, generateTicketCode,
-  type Event, type TicketType, type Model, type GateStaff
+  type Event, type TicketType, type Model, type GateStaff, type Order, type AuditLog, type Ticket
 } from './lib/data';
-import {
-  api,
-  getStoredModels,
-  saveStoredModels,
-  getStoredStaff,
-  saveStoredStaff,
-  getStoredEvents,
-  saveStoredEvents,
-  getStoredOrders,
-  saveStoredOrders,
-  getStoredTicketTypes,
-  saveStoredTicketTypes,
-  getStoredPlanners,
-  saveStoredPlanners
-} from './lib/api';
+import { api } from './lib/api';
+import { getEventShareUrl } from './lib/config';
+import { ShareButton } from './components/ShareModal';
 
 // ============ GLOBAL FLOATING FOOTER NAV ============
 function GlobalFloatingNav() {
@@ -452,11 +439,18 @@ function AppLayout({ children, role }: { children: React.ReactNode; role: string
 }
 
 // ============ SALES CHART ============
-function SalesChart() {
-  const maxVal = Math.max(...mockSalesData.map(d => d.sales));
+function SalesChart({ data = [] }: { data?: { sales: number; day?: string }[] }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="w-full h-32 sm:h-40 flex items-center justify-center text-xs text-text-muted">
+        No sales recorded yet
+      </div>
+    );
+  }
+  const maxVal = Math.max(...data.map(d => d.sales), 1);
   const w = 500, h = 160, pad = 20;
-  const points = mockSalesData.map((d, i) => {
-    const x = pad + (i / (mockSalesData.length - 1)) * (w - 2 * pad);
+  const points = data.map((d, i) => {
+    const x = pad + (i / Math.max(data.length - 1, 1)) * (w - 2 * pad);
     const y = h - pad - (d.sales / maxVal) * (h - 2 * pad);
     return `${x},${y}`;
   });
@@ -472,8 +466,8 @@ function SalesChart() {
       </defs>
       <path d={areaD} fill="url(#chartGrad)" />
       <path d={pathD} fill="none" stroke="#1B2A4A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      {mockSalesData.map((d, i) => {
-        const x = pad + (i / (mockSalesData.length - 1)) * (w - 2 * pad);
+      {data.map((d, i) => {
+        const x = pad + (i / Math.max(data.length - 1, 1)) * (w - 2 * pad);
         const y = h - pad - (d.sales / maxVal) * (h - 2 * pad);
         return <circle key={i} cx={x} cy={y} r="3" fill="white" stroke="#1B2A4A" strokeWidth="2" />;
       })}
@@ -484,17 +478,27 @@ function SalesChart() {
 // ============ ADMIN DASHBOARD ============
 function AdminDashboard() {
   const [loading, setLoading] = useState(true);
-  useEffect(() => { setTimeout(() => setLoading(false), 600); }, []);
+  const [events, setEvents] = useState<Event[]>([]);
+
+  useEffect(() => {
+    api.events.list().then(list => {
+      setEvents(list);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
   if (loading) return <div><h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Platform Overview</h1><div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">{[1, 2, 3, 4].map(i => <StatCardSkeleton key={i} />)}</div></div>;
+
+  const activeEvents = events.filter(e => e.status === 'active');
+  const totalCapacity = events.reduce((s, e) => s + (e.capacity || 0), 0);
 
   return (
     <div>
       <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Platform Overview</h1>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <StatCard label="Revenue" value={formatNaira(12847500)} icon={DollarSign} trend={{ value: 23, positive: true }} delay={0} />
-        <StatCard label="Sales" value={4231} icon={ShoppingBag} trend={{ value: 18, positive: true }} delay={50} />
-        <StatCard label="Fees Earned" value={formatNaira(642375)} icon={TrendingUp} delay={100} />
-        <StatCard label="Active Events" value={12} icon={Calendar} delay={150} />
+        <StatCard label="Active Events" value={activeEvents.length} icon={Calendar} delay={0} />
+        <StatCard label="Total Events" value={events.length} icon={ShoppingBag} delay={50} />
+        <StatCard label="Total Capacity" value={totalCapacity.toLocaleString()} icon={Users} delay={100} />
+        <StatCard label="Platform Status" value="Online" icon={Shield} delay={150} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
         <BentoCard className="lg:col-span-2" delay={200}>
@@ -507,7 +511,7 @@ function AdminDashboard() {
         <BentoCard delay={250}>
           <h3 className="text-sm font-semibold mb-3">Quick Stats</h3>
           <div className="space-y-3">
-            {[['Event Owners', '8'], ['Active Models', '47'], ['Gate Staff', '23'], ['Pending Payouts', '3', 'text-warning'], ['Refund Requests', '1', 'text-error']].map(([label, val, cls]) => (
+            {[['Active Events', String(activeEvents.length)], ['Total Events', String(events.length)], ['Platform Gateway', 'Paystack Live']].map(([label, val, cls]) => (
               <div key={label} className="flex justify-between items-center">
                 <span className="text-xs text-text-secondary">{label}</span>
                 <span className={`text-sm font-semibold ${cls || ''}`}>{val}</span>
@@ -519,34 +523,26 @@ function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
         <BentoCard delay={300}>
           <h3 className="text-sm font-semibold mb-3">Recent Activity</h3>
-          <div className="space-y-3">
-            {mockAuditLogs.slice(0, 4).map(log => (
-              <div key={log.id} className="flex items-start gap-3 text-xs">
-                <div className="w-1.5 h-1.5 rounded-full bg-navy mt-1.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-text-primary truncate">{log.details}</p>
-                  <p className="text-text-muted mt-0.5">{formatDateTime(log.createdAt)}</p>
-                </div>
-              </div>
-            ))}
+          <div className="space-y-3 text-xs text-text-muted">
+            <p>Platform security active. HMAC digital ticket verification enabled.</p>
           </div>
         </BentoCard>
         <BentoCard delay={350}>
-          <h3 className="text-sm font-semibold mb-3">Top Events</h3>
+          <h3 className="text-sm font-semibold mb-3">Active Events</h3>
           <div className="space-y-3">
-            {mockEvents.filter(e => e.status === 'active').map(evt => {
-              const tickets = mockTicketTypes.filter(t => t.eventId === evt.id);
-              const totalSold = tickets.reduce((s, t) => s + t.sold, 0);
-              return (
+            {activeEvents.length === 0 ? (
+              <p className="text-xs text-text-muted">No active events yet.</p>
+            ) : (
+              activeEvents.slice(0, 5).map(evt => (
                 <div key={evt.id} className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{evt.name}</p>
-                    <p className="text-xs text-text-muted">{formatDate(evt.eventDate)}</p>
+                    <p className="text-xs text-text-muted">{formatDate(evt.eventDate)} • {evt.venue}</p>
                   </div>
-                  <span className="text-sm font-semibold shrink-0">{totalSold}</span>
+                  <span className="text-xs text-text-secondary shrink-0">{evt.capacity} cap</span>
                 </div>
-              );
-            })}
+              ))
+            )}
           </div>
         </BentoCard>
       </div>
@@ -557,18 +553,48 @@ function AdminDashboard() {
 // ============ OWNER DASHBOARD ============
 function OwnerDashboard() {
   const [loading, setLoading] = useState(true);
-  useEffect(() => { setTimeout(() => setLoading(false), 500); }, []);
+  const [currentEvent, setCurrentEvent] = useState<Event | null>(null);
+  const [tickets, setTickets] = useState<TicketType[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
+
+  useEffect(() => {
+    setLoading(true);
+    api.events.list(true).then(async (eventsList) => {
+      const currentUser = api.auth.getCurrentUser();
+      const matched = (currentUser?.event_id ? eventsList.find(e => e.id === currentUser.event_id) : null) || eventsList[0] || null;
+      setCurrentEvent(matched);
+      if (matched) {
+        try {
+          const [tList, mList] = await Promise.all([
+            api.ticketTypes.list(matched.id),
+            api.models.list(),
+          ]);
+          setTickets(tList.filter(t => !t.archived));
+          setModels(mList.filter(m => m.eventId === matched.id || !m.eventId));
+        } catch {}
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
   if (loading) return <div><h1 className="text-xl sm:text-2xl font-semibold mb-6">Dashboard</h1><div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">{[1, 2, 3, 4].map(i => <StatCardSkeleton key={i} />)}</div></div>;
 
-  const event = mockEvents[0];
-  const tickets = mockTicketTypes.filter(t => t.eventId === event.id);
-  const totalSold = tickets.reduce((s, t) => s + t.sold, 0);
-  const totalRevenue = tickets.reduce((s, t) => s + (t.sold * t.price), 0);
-  const totalCapacity = tickets.reduce((s, t) => s + (t.quantity * t.admits), 0);
+  if (!currentEvent) {
+    return (
+      <div className="p-8 text-center card space-y-4">
+        <Calendar size={48} className="mx-auto text-accent opacity-40" />
+        <h2 className="text-lg font-bold text-text-primary">No Event Found</h2>
+        <p className="text-xs text-text-secondary max-w-sm mx-auto">
+          You do not have an active event assigned yet. Register your event to begin setting up ticket tiers and tracking sales.
+        </p>
+        <Link to="/register"><Button variant="primary" size="sm">Register Your Event</Button></Link>
+      </div>
+    );
+  }
 
-  const currentUser = api.auth.getCurrentUser();
-  const storedEvents = getStoredEvents();
-  const currentEvent = (currentUser?.event_id ? storedEvents.find(e => e.id === currentUser.event_id) : null) || storedEvents[0] || mockEvents[0];
+  const totalSold = tickets.reduce((s, t) => s + (t.sold || 0), 0);
+  const totalRevenue = tickets.reduce((s, t) => s + ((t.sold || 0) * (t.price || 0)), 0);
+  const totalCapacity = tickets.reduce((s, t) => s + ((t.quantity || 0) * (t.admits || 1)), 0);
+
   const isPending = (currentEvent as any)?.approval_status === 'pending';
   const isRejected = (currentEvent as any)?.approval_status === 'rejected';
 
@@ -579,7 +605,10 @@ function OwnerDashboard() {
           <h1 className="text-xl sm:text-2xl font-semibold">Organizer Dashboard</h1>
           <p className="text-xs sm:text-sm text-text-secondary mt-1">{currentEvent.name}</p>
         </div>
-        <Link to="/owner/events"><Button variant="secondary" icon={Calendar}>Events</Button></Link>
+        <div className="flex items-center gap-2">
+          <ShareButton event={currentEvent} size="sm" />
+          <Link to="/owner/events"><Button variant="secondary" icon={Calendar}>Events</Button></Link>
+        </div>
       </div>
 
       {isPending && (
@@ -609,8 +638,8 @@ function OwnerDashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <StatCard label="Tickets Sold" value={totalSold} icon={TIcon} trend={{ value: 12, positive: true }} delay={0} />
         <StatCard label="Revenue" value={formatNaira(totalRevenue)} icon={DollarSign} delay={50} />
-        <StatCard label="Capacity" value={`${Math.round((totalSold / totalCapacity) * 100)}%`} icon={BarChart3} delay={100} />
-        <StatCard label="Models" value={mockModels.filter(m => m.status === 'active').length} icon={Users} delay={150} />
+        <StatCard label="Capacity" value={totalCapacity > 0 ? `${Math.round((totalSold / totalCapacity) * 100)}%` : '0%'} icon={BarChart3} delay={100} />
+        <StatCard label="Models" value={models.filter(m => m.status === 'active').length} icon={Users} delay={150} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 mb-4">
         <BentoCard className="lg:col-span-8" delay={200}>
@@ -622,14 +651,18 @@ function OwnerDashboard() {
         </BentoCard>
         <BentoCard className="lg:col-span-4" delay={250}>
           <h3 className="text-sm font-semibold mb-3">Capacity</h3>
-          <ProgressBar value={totalSold} max={totalCapacity} label="People" />
+          <ProgressBar value={totalSold} max={Math.max(totalCapacity, 1)} label="People" />
           <div className="pt-3 mt-3 border-t border-border space-y-2">
-            {tickets.map(t => (
-              <div key={t.id} className="flex justify-between items-center">
-                <span className="text-xs text-text-secondary truncate mr-2">{t.name}</span>
-                <span className="text-xs font-medium shrink-0">{t.sold * t.admits}/{t.quantity * t.admits}</span>
-              </div>
-            ))}
+            {tickets.length === 0 ? (
+              <p className="text-xs text-text-muted">No ticket tiers created yet.</p>
+            ) : (
+              tickets.map(t => (
+                <div key={t.id} className="flex justify-between items-center">
+                  <span className="text-xs text-text-secondary truncate mr-2">{t.name}</span>
+                  <span className="text-xs font-medium shrink-0">{(t.sold || 0) * (t.admits || 1)}/{(t.quantity || 0) * (t.admits || 1)}</span>
+                </div>
+              ))
+            )}
           </div>
         </BentoCard>
       </div>
@@ -637,32 +670,40 @@ function OwnerDashboard() {
         <BentoCard className="lg:col-span-5" delay={300}>
           <h3 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Unlock', cursive" }}>By Ticket Type</h3>
           <div className="space-y-2">
-            {tickets.map(t => (
-              <div key={t.id} className="data-row flex items-center justify-between p-3 rounded-xl">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{t.name}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{formatNaira(t.price)}{t.admits > 1 ? ` x${t.admits}` : ''}</p>
+            {tickets.length === 0 ? (
+              <p className="text-xs text-text-muted">No ticket types found.</p>
+            ) : (
+              tickets.map(t => (
+                <div key={t.id} className="data-row flex items-center justify-between p-3 rounded-xl">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{t.name}</p>
+                    <p className="text-xs text-text-muted mt-0.5">{formatNaira(t.price)}{(t.admits || 1) > 1 ? ` x${t.admits}` : ''}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className="text-sm font-bold">{formatNaira((t.sold || 0) * t.price)}</p>
+                    <p className="text-xs text-text-muted mt-0.5">{t.sold || 0} sold</p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0 ml-3">
-                  <p className="text-sm font-bold">{formatNaira(t.sold * t.price)}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{t.sold} sold</p>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </BentoCard>
         <BentoCard className="sm:col-span-1 lg:col-span-4" delay={350}>
           <h3 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Unlock', cursive" }}>Model Leaderboard</h3>
           <div className="space-y-2">
-            {mockModels.filter(m => m.status === 'active').sort((a, b) => b.totalSold - a.totalSold).map((m, i) => (
-              <div key={m.id} className={`leaderboard-row ${i === 0 ? 'leaderboard-top' : ''}`}>
-                <span className="leaderboard-rank shrink-0">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{m.name}</p>
+            {models.length === 0 ? (
+              <p className="text-xs text-text-muted">No models active yet.</p>
+            ) : (
+              models.filter(m => m.status === 'active').sort((a, b) => b.totalSold - a.totalSold).map((m, i) => (
+                <div key={m.id} className={`leaderboard-row ${i === 0 ? 'leaderboard-top' : ''}`}>
+                  <span className="leaderboard-rank shrink-0">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{m.name}</p>
+                  </div>
+                  <span className="text-sm font-bold shrink-0">{m.totalSold}</span>
                 </div>
-                <span className="text-sm font-bold shrink-0">{m.totalSold}</span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
           <p className="text-xs text-text-muted mt-3 text-center">All model names visible to event organizer</p>
         </BentoCard>
@@ -685,76 +726,279 @@ function OwnerDashboard() {
   );
 }
 
+// ============ CAMERA SCANNER MODAL ============
+function CameraScannerModal({
+  isOpen,
+  onClose,
+  onScan,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onScan: (decodedText: string) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setError(null);
+
+    if (typeof window !== 'undefined' && !window.isSecureContext && window.location.hostname !== 'localhost') {
+      setError('Camera access requires a secure connection (HTTPS).');
+      return;
+    }
+
+    const elementId = 'ticket-qr-scanner-view';
+    let isCancelled = false;
+
+    const timer = setTimeout(async () => {
+      try {
+        const scanner = new Html5Qrcode(elementId);
+        scannerRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: 'environment' },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
+          },
+          (decodedText) => {
+            if (!isCancelled) {
+              onScan(decodedText);
+              try {
+                if (scanner.isScanning) {
+                  scanner.stop().then(() => scanner.clear()).catch(() => {});
+                }
+              } catch {}
+              onClose();
+            }
+          },
+          () => {}
+        );
+      } catch (err: any) {
+        if (isCancelled) return;
+        const msg = String(err?.message || err);
+        if (msg.includes('NotAllowedError') || msg.includes('Permission denied')) {
+          setError('Camera permission was denied. Please allow camera access in your browser settings.');
+        } else if (msg.includes('NotFoundError') || msg.includes('DevicesNotFoundError')) {
+          setError('No camera was found on this device.');
+        } else if (msg.includes('NotReadableError') || msg.includes('TrackStartError')) {
+          setError('Camera is in use by another application.');
+        } else {
+          setError(`Unable to access camera: ${msg}`);
+        }
+      }
+    }, 150);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+      if (scannerRef.current) {
+        try {
+          if (scannerRef.current.isScanning) {
+            scannerRef.current.stop().then(() => scannerRef.current?.clear()).catch(() => {});
+          } else {
+            scannerRef.current.clear();
+          }
+        } catch {}
+        scannerRef.current = null;
+      }
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="card w-full max-w-md p-5 bg-[var(--card-bg)] border border-[var(--border)] rounded-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Camera size={18} className="text-accent" />
+            <h3 className="text-base font-bold text-text-primary">Scan Ticket QR Code</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary transition-colors"
+            title="Close camera"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {error ? (
+          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-center space-y-3">
+            <AlertTriangle size={32} className="text-red-500 mx-auto" />
+            <p className="text-xs text-red-500 leading-relaxed font-medium">{error}</p>
+            <Button variant="secondary" size="sm" onClick={onClose} className="w-full">
+              Enter code manually
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div
+              id="ticket-qr-scanner-view"
+              className="w-full aspect-square rounded-xl overflow-hidden bg-black relative"
+              style={{ minHeight: 280 }}
+            />
+            <p className="text-xs text-center text-text-muted">
+              Point your camera at the buyer's ticket QR code.
+            </p>
+            <Button variant="secondary" size="sm" onClick={onClose} className="w-full">
+              Enter code manually instead
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ============ VERIFICATION PAGE ============
 function VerificationPage() {
   const { eventId } = useParams<{ eventId?: string }>();
   const navigate = useNavigate();
   const currentUser = api.auth.getCurrentUser();
-  const [events] = useState<Event[]>(() => getStoredEvents());
-  const [currentEventId, setCurrentEventId] = useState<string>(eventId || events[0]?.id || 'evt_1');
-  const activeEvent = events.find(e => e.id === currentEventId) || events[0] || mockEvents[0];
+  const [events, setEvents] = useState<Event[]>([]);
+  const [currentEventId, setCurrentEventId] = useState<string>(eventId || currentUser?.event_id || '');
+  const [eventsLoading, setEventsLoading] = useState(true);
 
   const [code, setCode] = useState('');
-  const [result, setResult] = useState<'valid' | 'used' | 'unknown' | null>(null);
-  const [scanning, setScanning] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [result, setResult] = useState<'valid' | 'used' | 'unknown' | 'error' | null>(null);
   const [ticketInfo, setTicketInfo] = useState<any>(null);
-  const [ticketsList, setTicketsList] = useState(mockTickets);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [usedAt, setUsedAt] = useState<string | null>(null);
   const [myVerifiedCount, setMyVerifiedCount] = useState<number>(0);
   const [history, setHistory] = useState<{ code: string; status: string; time: string; type: string }[]>([]);
 
-  const checkedIn = ticketsList.filter(t => t.checkedIn).length;
-  const totalTickets = ticketsList.length;
-  const totalPeople = ticketsList.reduce((s, t) => s + (t.checkedIn ? t.admits : 0), 0);
-  const totalCapacity = ticketsList.reduce((s, t) => s + t.admits, 0);
+  // Backend stats
+  const [stats, setStats] = useState<{
+    total_tickets: number;
+    checked_in: number;
+    total_admits: number;
+    checked_in_admits: number;
+  }>({
+    total_tickets: 0,
+    checked_in: 0,
+    total_admits: 0,
+    checked_in_admits: 0,
+  });
+
+  // Load events
+  useEffect(() => {
+    setEventsLoading(true);
+    api.events.list(currentUser?.role === 'owner' || currentUser?.role === 'planner').then(list => {
+      setEvents(list);
+      if (!currentEventId && list.length > 0) {
+        const defaultId = currentUser?.event_id && list.some(e => e.id === currentUser.event_id)
+          ? currentUser.event_id
+          : list[0].id;
+        setCurrentEventId(defaultId);
+      }
+    }).catch(() => {}).finally(() => setEventsLoading(false));
+  }, []);
+
+  const activeEvent = events.find(e => e.id === currentEventId) || (currentEventId ? { id: currentEventId, name: 'Assigned Event', venue: 'Gate Security' } as any : null);
+
+  // Fetch stats on currentEventId change
+  const refreshStats = useCallback(async (evtId: string) => {
+    if (!evtId) return;
+    try {
+      const data = await api.verify.getStats(evtId);
+      if (data) setStats(data);
+    } catch { }
+  }, []);
+
+  useEffect(() => {
+    if (currentEventId) {
+      refreshStats(currentEventId);
+    }
+  }, [currentEventId, refreshStats]);
+
+  const processVerification = async (verifyParams: { code?: string; qr_payload?: string; method: 'code' | 'qr' }) => {
+    if (!currentEventId) {
+      showToast('Please select an event to verify against', 'error');
+      return;
+    }
+
+    setVerifying(true);
+    setErrorMessage('');
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    try {
+      const resp = await api.verify.ticket({
+        event_id: currentEventId,
+        ...verifyParams,
+      });
+
+      if (resp.status === 'valid') {
+        setResult('valid');
+        setTicketInfo(resp.ticket);
+        setUsedAt(null);
+        setMyVerifiedCount(prev => prev + 1);
+        const codeDisplay = resp.ticket?.code || verifyParams.code || 'QR Ticket';
+        const typeDisplay = resp.ticket?.ticket_type?.name || 'Standard';
+        setHistory(prev => [{ code: codeDisplay, status: 'Admitted (Valid)', time: nowTime, type: typeDisplay }, ...prev.slice(0, 4)]);
+        showToast('Ticket verified & checked in!', 'success');
+        refreshStats(currentEventId);
+      } else if (resp.status === 'already_used') {
+        setResult('used');
+        setTicketInfo(resp.ticket || null);
+        setUsedAt(resp.used_at || resp.ticket?.checked_in_at || null);
+        const codeDisplay = resp.ticket?.code || verifyParams.code || 'QR Ticket';
+        const typeDisplay = resp.ticket?.ticket_type?.name || 'Standard';
+        setHistory(prev => [{ code: codeDisplay, status: 'Already Checked In', time: nowTime, type: typeDisplay }, ...prev.slice(0, 4)]);
+        showToast('WARNING: Ticket already checked in!', 'error');
+      } else if (resp.status === 'not_found' || resp.status === 'invalid') {
+        setResult('unknown');
+        setTicketInfo(null);
+        setUsedAt(null);
+        const codeDisplay = verifyParams.code || 'Invalid Code';
+        setHistory(prev => [{ code: codeDisplay, status: 'Invalid / Not Recognized', time: nowTime, type: 'Unknown' }, ...prev.slice(0, 4)]);
+        showToast('Invalid ticket code', 'error');
+      } else {
+        setResult('error');
+        setTicketInfo(null);
+        setErrorMessage(resp.error || 'Verification failed');
+        showToast(resp.error || 'Verification error', 'error');
+      }
+    } catch (err: any) {
+      setResult('error');
+      setTicketInfo(null);
+      setErrorMessage(err.message || 'Network error');
+      showToast('Verification failed: network error', 'error');
+    } finally {
+      setVerifying(false);
+      setCode('');
+    }
+  };
 
   const handleVerify = () => {
     const normalized = code.replace(/[\s-]/g, '').toUpperCase();
     if (!normalized) return;
-    const ticket = ticketsList.find(t => t.code.replace(/[\s-]/g, '').toUpperCase() === normalized);
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    if (!ticket) {
-      setResult('unknown');
-      setTicketInfo(null);
-      setHistory(prev => [{ code: normalized, status: 'Invalid / Not Recognized', time: nowTime, type: 'Unknown' }, ...prev.slice(0, 4)]);
-    } else if (ticket.checkedIn) {
-      setResult('used');
-      setTicketInfo(ticket);
-      setHistory(prev => [{ code: ticket.code, status: 'Already Checked In', time: nowTime, type: ticket.ticketTypeName }, ...prev.slice(0, 4)]);
-    } else {
-      setResult('valid');
-      setTicketInfo(ticket);
-      setTicketsList(prev => prev.map(t => t.id === ticket.id ? { ...t, checkedIn: true, checkInMethod: 'code', checkedInAt: new Date().toISOString() } : t));
-      setMyVerifiedCount(prev => prev + 1);
-      setHistory(prev => [{ code: ticket.code, status: 'Admitted (Valid)', time: nowTime, type: ticket.ticketTypeName }, ...prev.slice(0, 4)]);
-      showToast('Ticket verified & checked in!', 'success');
-    }
-    setCode('');
+    processVerification({ code: normalized, method: 'code' });
   };
 
-  const handleScan = () => {
-    setScanning(true);
-    setTimeout(() => {
-      setScanning(false);
-      const randomTicket = ticketsList[Math.floor(Math.random() * ticketsList.length)];
-      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (randomTicket.checkedIn) {
-        setResult('used');
-        setTicketInfo(randomTicket);
-        setHistory(prev => [{ code: randomTicket.code, status: 'Already Checked In', time: nowTime, type: randomTicket.ticketTypeName }, ...prev.slice(0, 4)]);
-      } else {
-        setResult('valid');
-        setTicketInfo(randomTicket);
-        setTicketsList(prev => prev.map(t => t.id === randomTicket.id ? { ...t, checkedIn: true, checkInMethod: 'qr', checkedInAt: new Date().toISOString() } : t));
-        setMyVerifiedCount(prev => prev + 1);
-        setHistory(prev => [{ code: randomTicket.code, status: 'Admitted via QR', time: nowTime, type: randomTicket.ticketTypeName }, ...prev.slice(0, 4)]);
-        showToast('QR Code Verified!', 'success');
-      }
-    }, 1200);
+  const handleScanDecoded = (decodedText: string) => {
+    let cleanCode = decodedText.trim();
+    if (cleanCode.startsWith('TIKITI:')) {
+      cleanCode = cleanCode.substring(7);
+      processVerification({ code: cleanCode, method: 'qr' });
+    } else {
+      processVerification({ qr_payload: cleanCode, method: 'qr' });
+    }
   };
 
   return (
     <div className="min-h-screen bg-canvas flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
+      <CameraScannerModal
+        isOpen={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onScan={handleScanDecoded}
+      />
+
       <header className="border-b px-3 sm:px-6 py-3 flex items-center justify-between" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--shadow-dark)' }}>
         <div className="flex items-center gap-3">
           <Link to="/" className="p-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }}>
@@ -774,16 +1018,18 @@ function VerificationPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            value={currentEventId}
-            onChange={e => setCurrentEventId(e.target.value)}
-            className="text-xs px-2.5 py-1.5 rounded-lg border hidden sm:block"
-            style={{ background: 'var(--canvas)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}
-          >
-            {events.map(ev => (
-              <option key={ev.id} value={ev.id}>{ev.name}</option>
-            ))}
-          </select>
+          {events.length > 0 && currentUser?.role !== 'gate' && (
+            <select
+              value={currentEventId}
+              onChange={e => setCurrentEventId(e.target.value)}
+              className="text-xs px-2.5 py-1.5 rounded-lg border hidden sm:block"
+              style={{ background: 'var(--canvas)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}
+            >
+              {events.map(ev => (
+                <option key={ev.id} value={ev.id}>{ev.name}</option>
+              ))}
+            </select>
+          )}
           <ThemeToggle />
           {currentUser ? (
             <button
@@ -803,9 +1049,13 @@ function VerificationPage() {
       <div className="px-3 sm:px-6 py-2 flex items-center justify-between" style={{ backgroundColor: 'var(--success-bg)' }}>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full animate-pulse-soft" style={{ backgroundColor: 'var(--success)' }} />
-          <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>Gate Online & Connected • {activeEvent.name}</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>
+            Gate Online &amp; Connected • {activeEvent?.name || 'Loading event...'}
+          </span>
         </div>
-        <span className="text-xs font-mono text-text-muted hidden sm:inline">Venue: {activeEvent.venue}</span>
+        <span className="text-xs font-mono text-text-muted hidden sm:inline">
+          Venue: {activeEvent?.venue || 'Campus Gate'}
+        </span>
       </div>
 
       <div className="flex-1 p-3 sm:p-6 max-w-lg mx-auto w-full">
@@ -822,35 +1072,23 @@ function VerificationPage() {
               className="input text-base sm:text-lg font-mono tracking-wider text-center py-3 sm:py-3.5 w-full uppercase"
               autoFocus autoComplete="off"
             />
-            <Button onClick={handleVerify} disabled={!code.trim()}>Verify</Button>
-          </div>
-          {/* Quick test code helpers */}
-          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-text-muted">Test sample:</span>
-            {mockTickets.slice(0, 3).map(t => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setCode(t.code)}
-                className="text-[11px] font-mono px-2 py-0.5 rounded bg-canvas hover:text-accent border"
-                style={{ borderColor: 'var(--border)' }}
-              >
-                {t.code}
-              </button>
-            ))}
+            <Button onClick={handleVerify} disabled={!code.trim() || verifying} loading={verifying}>
+              Verify
+            </Button>
           </div>
         </div>
 
-        {/* Camera Scanner Simulation */}
-        <button onClick={handleScan} disabled={scanning}
-          className="w-full card p-4 sm:p-5 flex items-center justify-center gap-3 mb-4 sm:mb-6 hover:shadow-md transition-shadow active:scale-[0.99]"
+        {/* Real Camera QR Scanner Button */}
+        <button
+          onClick={() => setCameraOpen(true)}
+          disabled={verifying}
+          className="w-full card p-4 sm:p-5 flex items-center justify-center gap-3 mb-4 sm:mb-6 hover:shadow-md transition-shadow active:scale-[0.99] cursor-pointer"
           style={{ borderColor: 'var(--accent)' }}
         >
-          {scanning ? (
-            <><svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)' }}><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg><span className="text-sm font-medium">Scanning ticket barcode / QR...</span></>
-          ) : (
-            <><Camera size={20} style={{ color: 'var(--accent)' }} /><span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Scan Ticket QR Code</span></>
-          )}
+          <Camera size={20} style={{ color: 'var(--accent)' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Scan Ticket QR Code
+          </span>
         </button>
 
         {/* Verification Result Notification */}
@@ -863,22 +1101,49 @@ function VerificationPage() {
               {result === 'valid' && <Check size={28} className="text-success" />}
               {result === 'used' && <AlertTriangle size={28} className="text-warning" />}
               {result === 'unknown' && <X size={28} className="text-error" />}
+              {result === 'error' && <AlertTriangle size={28} className="text-error" />}
               <div>
                 <span className={`text-base sm:text-lg font-bold ${result === 'valid' ? 'text-success' : result === 'used' ? 'text-warning' : 'text-error'}`}>
-                  {result === 'valid' ? 'VALID TICKET - ADMIT ONE' : result === 'used' ? 'WARNING: ALREADY USED' : 'REJECTED - INVALID TICKET'}
+                  {result === 'valid'
+                    ? 'VALID TICKET - ADMIT ONE'
+                    : result === 'used'
+                      ? 'WARNING: ALREADY USED'
+                      : result === 'unknown'
+                        ? 'REJECTED - INVALID TICKET'
+                        : 'VERIFICATION ERROR'}
                 </span>
                 <p className="text-xs text-text-muted">
-                  {result === 'valid' ? 'Ticket cleared for entry. Live counter updated.' : result === 'used' ? 'This ticket was already checked in at the gate.' : 'Code does not exist in event ticket roster.'}
+                  {result === 'valid'
+                    ? 'Ticket cleared for entry. Live counter updated.'
+                    : result === 'used'
+                      ? `This ticket was already checked in at the gate${usedAt ? ` (${formatDateTime(usedAt)})` : ''}.`
+                      : result === 'unknown'
+                        ? 'Code does not exist in event ticket roster.'
+                        : (errorMessage || 'An error occurred during verification.')}
                 </p>
               </div>
             </div>
             {ticketInfo && (
               <div className="space-y-2 text-sm pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex justify-between"><span className="text-text-secondary">Ticket Tier</span><span className="font-semibold">{ticketInfo.ticketTypeName}</span></div>
-                <div className="flex justify-between"><span className="text-text-secondary">Admits</span><span className="font-bold">{ticketInfo.admits} Person</span></div>
-                <div className="flex justify-between"><span className="text-text-secondary">Code</span><span className="font-mono font-bold">{ticketInfo.code}</span></div>
-                {ticketInfo.checkedInAt && (
-                  <div className="flex justify-between"><span className="text-text-secondary">Checked In At</span><span className="text-xs text-text-muted">{formatDateTime(ticketInfo.checkedInAt)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Ticket Tier</span>
+                  <span className="font-semibold">{ticketInfo.ticket_type?.name || ticketInfo.ticketTypeName || 'Standard'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Admits</span>
+                  <span className="font-bold">{ticketInfo.ticket_type?.admits || ticketInfo.admits || 1} Person</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Code</span>
+                  <span className="font-mono font-bold">{ticketInfo.code}</span>
+                </div>
+                {(ticketInfo.checked_in_at || ticketInfo.checkedInAt) && (
+                  <div className="flex justify-between">
+                    <span className="text-text-secondary">Checked In At</span>
+                    <span className="text-xs text-text-muted">
+                      {formatDateTime(ticketInfo.checked_in_at || ticketInfo.checkedInAt)}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
@@ -890,11 +1155,11 @@ function VerificationPage() {
           <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Gate Attendance Counters</h3>
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
             <div className="text-center p-2.5 sm:p-3 rounded-lg" style={{ background: 'var(--canvas)' }}>
-              <p className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--accent)' }}>{checkedIn}</p>
+              <p className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--accent)' }}>{stats.checked_in}</p>
               <p className="text-[11px] sm:text-xs text-text-secondary">Scanned</p>
             </div>
             <div className="text-center p-2.5 sm:p-3 rounded-lg" style={{ background: 'var(--canvas)' }}>
-              <p className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{totalPeople}</p>
+              <p className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{stats.checked_in_admits || stats.checked_in}</p>
               <p className="text-[11px] sm:text-xs text-text-secondary">Admitted</p>
             </div>
             <div className="text-center p-2.5 sm:p-3 rounded-lg" style={{ background: 'rgba(0, 229, 255, 0.08)', border: '1px solid rgba(0, 229, 255, 0.2)' }}>
@@ -902,8 +1167,10 @@ function VerificationPage() {
               <p className="text-[11px] sm:text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>By You</p>
             </div>
           </div>
-          <ProgressBar value={checkedIn} max={totalTickets} label="Tickets Scanned" />
-          <div className="mt-3"><ProgressBar value={totalPeople} max={totalCapacity} label="Venue Capacity" /></div>
+          <ProgressBar value={stats.checked_in} max={Math.max(stats.total_tickets, 1)} label="Tickets Scanned" />
+          <div className="mt-3">
+            <ProgressBar value={stats.checked_in_admits || stats.checked_in} max={Math.max(stats.total_admits, 1)} label="Total Attendees" />
+          </div>
         </div>
 
         {/* History of recent scans */}
@@ -938,12 +1205,54 @@ function VerificationPage() {
 function ModelDashboard() {
   const navigate = useNavigate();
   const currentUser = api.auth.getCurrentUser();
-  const [models] = useState<Model[]>(() => getStoredModels());
-  const initialModelId = (currentUser && (currentUser.role === 'model' || currentUser.role === 'staff') && models.some(m => m.id === currentUser.id || m.email === currentUser.email))
-    ? (models.find(m => m.id === currentUser.id || m.email === currentUser.email)?.id || models[0]?.id || mockModels[0].id)
-    : (models[0]?.id || mockModels[0].id);
-  const [selectedModelId, setSelectedModelId] = useState<string>(initialModelId);
-  const model = models.find(m => m.id === selectedModelId) || models[0] || mockModels[0];
+  const [models, setModels] = useState<Model[]>([]);
+  const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+
+  useEffect(() => {
+    setLoading(true);
+    api.models.list().then(list => {
+      setModels(list);
+      const initId = (currentUser && (currentUser.role === 'model' || currentUser.role === 'staff') && list.some(m => m.id === currentUser.id || m.email === currentUser.email))
+        ? (list.find(m => m.id === currentUser.id || m.email === currentUser.email)?.id || list[0]?.id || '')
+        : (list[0]?.id || '');
+      setSelectedModelId(initId);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const model = models.find(m => m.id === selectedModelId) || models[0] || null;
+
+  useEffect(() => {
+    if (model?.eventId) {
+      api.ticketTypes.list(model.eventId).then(list => setTicketTypes(list.filter(t => !t.archived))).catch(() => {});
+    }
+  }, [model?.eventId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen p-6 flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (!model) {
+    return (
+      <div className="min-h-screen p-6 flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div className="card p-8 max-w-md w-full text-center space-y-4">
+          <Users size={48} className="mx-auto text-accent opacity-40" />
+          <h2 className="text-lg font-bold text-text-primary">No Ambassador Models Found</h2>
+          <p className="text-xs text-text-secondary">
+            No campus models or ambassadors have been registered yet. Once an organizer invites you, your tracking portal will appear here.
+          </p>
+          <Link to="/"><Button variant="primary" size="sm">Back to Home</Button></Link>
+        </div>
+      </div>
+    );
+  }
+
+  const referralUrl = getEventShareUrl(model.eventId, model.referralCode);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)' }}>
@@ -961,16 +1270,18 @@ function ModelDashboard() {
             <Badge variant="neutral">Model Ambassador</Badge>
           </div>
           <div className="flex items-center gap-3">
-            <select
-              value={selectedModelId}
-              onChange={e => setSelectedModelId(e.target.value)}
-              className="text-xs px-2.5 py-1.5 rounded-lg border hidden sm:block"
-              style={{ background: 'var(--canvas)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}
-            >
-              {models.map(m => (
-                <option key={m.id} value={m.id}>View as: {m.name}</option>
-              ))}
-            </select>
+            {models.length > 1 && (
+              <select
+                value={selectedModelId}
+                onChange={e => setSelectedModelId(e.target.value)}
+                className="text-xs px-2.5 py-1.5 rounded-lg border hidden sm:block"
+                style={{ background: 'var(--canvas)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}
+              >
+                {models.map(m => (
+                  <option key={m.id} value={m.id}>View as: {m.name}</option>
+                ))}
+              </select>
+            )}
             <ThemeToggle />
             {currentUser ? (
               <button
@@ -997,9 +1308,9 @@ function ModelDashboard() {
           <Badge variant={model.status === 'active' ? 'success' : 'warning'}>{model.status}</Badge>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <StatCard label="Tickets Sold" value={model.totalSold} icon={TIcon} delay={0} />
-          <StatCard label="Revenue Attributed" value={formatNaira(model.revenue || model.totalSold * 8000)} icon={DollarSign} delay={50} />
-          <StatCard label="Leaderboard Rank" value={`#${mockModels.filter(m => m.status === 'active').sort((a, b) => b.totalSold - a.totalSold).findIndex(m => m.id === model.id) + 1 || 1}`} icon={TrendingUp} delay={100} />
+          <StatCard label="Tickets Sold" value={model.totalSold || 0} icon={TIcon} delay={0} />
+          <StatCard label="Revenue Attributed" value={formatNaira(model.revenue || 0)} icon={DollarSign} delay={50} />
+          <StatCard label="Leaderboard Rank" value={`#${models.filter(m => m.status === 'active').sort((a, b) => b.totalSold - a.totalSold).findIndex(m => m.id === model.id) + 1 || 1}`} icon={TrendingUp} delay={100} />
         </div>
         <BentoCard className="mb-4" delay={150}>
           <div className="flex items-center justify-between mb-2">
@@ -1007,19 +1318,12 @@ function ModelDashboard() {
             <span className="text-xs text-text-muted">Buyers through this link get tracked to you</span>
           </div>
           <div className="flex items-center gap-2 p-3 bg-canvas rounded-lg">
-            <code className="flex-1 text-xs sm:text-sm font-mono truncate" style={{ color: 'var(--accent)' }}>tikiti.ng/e/evt_1?ref={model.referralCode}</code>
-            <CopyButton text={`https://tikiti.ng/e/evt_1?ref=${model.referralCode}`} />
+            <code className="flex-1 text-xs sm:text-sm font-mono truncate" style={{ color: 'var(--accent)' }}>{referralUrl}</code>
+            <CopyButton text={referralUrl} />
           </div>
           <div className="flex gap-2 mt-3">
-            <Button variant="secondary" size="sm" icon={Share2} onClick={() => {
-              if (navigator.share) {
-                navigator.share({ title: 'Buy Event Tickets', url: `https://tikiti.ng/e/evt_1?ref=${model.referralCode}` }).catch(() => { });
-              } else {
-                navigator.clipboard.writeText(`https://tikiti.ng/e/evt_1?ref=${model.referralCode}`);
-                showToast('Referral link copied to clipboard!', 'success');
-              }
-            }}>Share Link</Button>
-            <Link to={`/event/evt_1?ref=${model.referralCode}`}>
+            <ShareButton event={{ id: model.eventId, name: `${model.name}'s Event Link` }} refCode={model.referralCode} size="sm" />
+            <Link to={`/event/${model.eventId}?ref=${model.referralCode}`}>
               <Button variant="secondary" size="sm" icon={ExternalLink}>Preview Buyer Page</Button>
             </Link>
           </div>
@@ -1029,21 +1333,22 @@ function ModelDashboard() {
           <BentoCard delay={250}>
             <h3 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Unlock', cursive" }}>By Ticket Type</h3>
             <div className="space-y-2">
-              {mockTicketTypes.filter(t => t.eventId === 'evt_1').map(tt => {
-                const mySold = Math.floor(tt.sold * 0.3);
-                return (
+              {ticketTypes.length === 0 ? (
+                <p className="text-xs text-text-muted">No tickets configured yet.</p>
+              ) : (
+                ticketTypes.map(tt => (
                   <div key={tt.id} className="data-row flex items-center justify-between p-3 rounded-xl">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold truncate">{tt.name}</p>
                       <p className="text-xs text-text-muted mt-0.5">{formatNaira(tt.price)}</p>
                     </div>
                     <div className="text-right shrink-0 ml-3">
-                      <p className="text-sm font-bold">{mySold}</p>
-                      <p className="text-xs text-text-muted mt-0.5">{formatNaira(mySold * tt.price)}</p>
+                      <p className="text-sm font-bold">{tt.sold || 0} sold</p>
+                      <p className="text-xs text-text-muted mt-0.5">{formatNaira((tt.sold || 0) * tt.price)}</p>
                     </div>
                   </div>
-                );
-              })}
+                ))
+              )}
             </div>
           </BentoCard>
         </div>
@@ -1053,7 +1358,7 @@ function ModelDashboard() {
             <span className="text-xs text-text-muted">Competitor names masked for privacy</span>
           </div>
           <div className="space-y-2">
-            {mockModels.filter(m => m.status === 'active').sort((a, b) => b.totalSold - a.totalSold).map((m, i) => (
+            {models.filter(m => m.status === 'active').sort((a, b) => b.totalSold - a.totalSold).map((m, i) => (
               <div key={m.id} className={`leaderboard-row ${i === 0 ? 'leaderboard-top' : ''}`}>
                 <span className="leaderboard-rank shrink-0">{i + 1}</span>
                 {m.id === model.id ? (
@@ -1063,7 +1368,7 @@ function ModelDashboard() {
                     <p className="text-sm font-semibold">Model Ambassador {i + 1}</p>
                   </div>
                 )}
-                <span className="text-sm font-bold shrink-0">{m.totalSold}</span>
+                <span className="text-sm font-bold shrink-0">{m.totalSold || 0}</span>
               </div>
             ))}
           </div>
@@ -1075,21 +1380,15 @@ function ModelDashboard() {
 
 // ============ EVENTS MANAGEMENT (1 EVENT = 1 ACCOUNT) ============
 function OwnerEvents() {
-  const events = getStoredEvents();
-  let user: any = null;
-  try {
-    const raw = localStorage.getItem('tiketi_user');
-    if (raw) user = JSON.parse(raw);
-  } catch (e) { }
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Filter to organizer's specific event in 1 Organizer = 1 Event architecture
-  const myEvents = events.filter(e => {
-    if (user?.event_id && e.id === user.event_id) return true;
-    if (user?.id && (e.ownerId === user.id || (e as any).organizerId === user.id || (e as any).plannerId === user.id)) return true;
-    return false;
-  });
-
-  const displayEvents = myEvents.length > 0 ? myEvents : [events[0]];
+  useEffect(() => {
+    setLoading(true);
+    api.events.list(true).then(list => {
+      setEvents(list);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   return (
     <div>
@@ -1115,13 +1414,22 @@ function OwnerEvents() {
         </Link>
       </div>
 
-      <div className="space-y-3 sm:space-y-4">
-        {displayEvents.map(evt => {
-          const tickets = getStoredTicketTypes().filter(t => t.eventId === evt.id);
-          const totalSold = tickets.reduce((s, t) => s + (t.sold || 0), 0);
-          const totalCapacity = tickets.reduce((s, t) => s + ((t.quantity || 0) * (t.admits || 1)), 0);
-          const revenue = tickets.reduce((s, t) => s + ((t.sold || 0) * (t.price || 0)), 0);
-          return (
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2].map(i => <div key={i} className="card p-5 animate-pulse" style={{ height: 120 }} />)}
+        </div>
+      ) : events.length === 0 ? (
+        <div className="card p-10 text-center space-y-3">
+          <Calendar size={48} className="mx-auto text-accent opacity-40" />
+          <h3 className="text-base font-bold text-text-primary">No events found</h3>
+          <p className="text-xs text-text-secondary max-w-sm mx-auto">
+            You don't have any events registered under this account yet.
+          </p>
+          <Link to="/register"><Button variant="primary" size="sm">Register Event</Button></Link>
+        </div>
+      ) : (
+        <div className="space-y-3 sm:space-y-4">
+          {events.map(evt => (
             <div key={evt.id} className="card p-4 sm:p-5">
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -1133,41 +1441,90 @@ function OwnerEvents() {
                   <p className="text-xs text-text-muted mt-1">{formatDate(evt.eventDate)}</p>
                 </div>
                 <div className="text-left sm:text-right shrink-0">
-                  <p className="text-sm font-semibold">{formatNaira(revenue)}</p>
-                  <p className="text-xs text-text-muted">{totalSold} / {totalCapacity} sold</p>
+                  <p className="text-xs text-text-muted">Capacity: {evt.capacity}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 mt-3 sm:mt-4">
                 <Link to={`/owner/events/${evt.id}`}><Button variant="secondary" size="sm" icon={Eye}>View</Button></Link>
                 <Link to={`/verify/${evt.id}`}><Button variant="secondary" size="sm" icon={QrCode}>Verify</Button></Link>
                 <Link to={`/owner/events/${evt.id}/checkins`}><Button variant="secondary" size="sm" icon={Activity}>Check-ins</Button></Link>
+                <ShareButton event={evt} size="sm" />
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ============ EVENT DETAIL ============
 function OwnerEventDetail() {
-  const { eventId } = useParams();
-  const event = getStoredEvents().find(e => e.id === eventId) || mockEvents[0];
-  const tickets = getStoredTicketTypes().filter(t => t.eventId === event.id);
-  const models = mockModels.filter(m => m.eventId === event.id);
+  const { eventId } = useParams<{ eventId?: string }>();
+  const [event, setEvent] = useState<Event | null>(null);
+  const [tickets, setTickets] = useState<TicketType[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('overview');
+
+  useEffect(() => {
+    if (!eventId) return;
+    setLoading(true);
+    Promise.all([
+      api.events.get(eventId),
+      api.ticketTypes.list(eventId),
+      api.models.list(),
+      api.orders.list(eventId),
+    ]).then(([evt, tList, mList, oList]) => {
+      setEvent(evt || null);
+      setTickets(tList.filter(t => !t.archived));
+      setModels(mList.filter(m => m.eventId === eventId || !m.eventId));
+      setOrders(oList);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [eventId]);
+
+  if (loading) {
+    return (
+      <div className="p-8 text-center">
+        <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto" />
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div className="card p-8 text-center space-y-3">
+        <Calendar size={48} className="mx-auto text-accent opacity-40" />
+        <h3 className="text-base font-bold text-text-primary">Event Not Found</h3>
+        <p className="text-xs text-text-secondary">This event could not be found or has been removed.</p>
+        <Link to="/owner/events"><Button variant="primary" size="sm">Back to Events</Button></Link>
+      </div>
+    );
+  }
+
   const totalSold = tickets.reduce((s, t) => s + (t.sold || 0), 0);
   const totalRevenue = tickets.reduce((s, t) => s + ((t.sold || 0) * (t.price || 0)), 0);
   const totalCapacity = tickets.reduce((s, t) => s + ((t.quantity || 0) * (t.admits || 1)), 0);
 
   return (
     <div>
-      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
-        <Link to="/owner/events" className="p-2 rounded-lg hover:bg-gray-50 shrink-0"><ArrowLeft size={18} /></Link>
-        <div className="min-w-0"><h1 className="text-lg sm:text-xl font-semibold truncate">{event.name}</h1><p className="text-xs text-text-secondary truncate">{event.venue}</p></div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link to="/owner/events" className="p-2 rounded-lg hover:bg-gray-50 shrink-0"><ArrowLeft size={18} /></Link>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-semibold truncate">{event.name}</h1>
+            <p className="text-xs text-text-secondary truncate">{event.venue}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <ShareButton event={event} size="sm" />
+          <Link to={`/event/${event.id}`}>
+            <Button variant="secondary" size="sm" icon={ExternalLink}>Public Page</Button>
+          </Link>
+        </div>
       </div>
-      <TabNav tabs={[{ id: 'overview', label: 'Overview' }, { id: 'tickets', label: 'Tickets', count: tickets.length }, { id: 'models', label: 'Models', count: models.length }, { id: 'orders', label: 'Orders' }]} active={tab} onChange={setTab} />
+      <TabNav tabs={[{ id: 'overview', label: 'Overview' }, { id: 'tickets', label: 'Tickets', count: tickets.length }, { id: 'models', label: 'Models', count: models.length }, { id: 'orders', label: 'Orders', count: orders.length }]} active={tab} onChange={setTab} />
       {tab === 'overview' && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
           <StatCard label="Sold" value={totalSold} icon={TIcon} delay={0} />
@@ -1183,44 +1540,49 @@ function OwnerEventDetail() {
           </div>
           <div className="table-wrapper hidden sm:block">
             <table><thead><tr><th>Name</th><th>Price</th><th>Admits</th><th>Qty</th><th>Sold</th><th>Design</th></tr></thead>
-              <tbody>{tickets.map(tt => (
-                <tr key={tt.id}>
-                  <td className="font-medium">
-                    <div className="flex items-center gap-1.5">
-                      <span>{tt.name}</span>
-                      {tt.genderPricing && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">
-                          Gender Pricing
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    {tt.genderPricing ? (
-                      <span className="text-xs">
-                        Male: {formatNaira(tt.malePrice || 0)} / Female: {formatNaira(tt.femalePrice || 0)}
-                      </span>
-                    ) : (
-                      formatNaira(tt.price)
-                    )}
-                  </td>
-                  <td>{tt.admits}</td>
-                  <td>{tt.quantity}</td>
-                  <td>{tt.sold || 0}</td>
-                  <td>
-                    {tt.imageUrl ? (
-                      <span className="text-[11px] text-accent font-medium flex items-center gap-1">
-                        ✓ Uploaded
-                      </span>
-                    ) : (
-                      <span className="text-xs text-text-muted">Standard</span>
-                    )}
-                  </td>
-                </tr>
-              ))}</tbody>
+              <tbody>
+                {tickets.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-4 text-xs text-text-muted">No ticket tiers created yet.</td></tr>
+                ) : (
+                  tickets.map(tt => (
+                    <tr key={tt.id}>
+                      <td className="font-medium">
+                        <div className="flex items-center gap-1.5">
+                          <span>{tt.name}</span>
+                          {tt.genderPricing && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">
+                              Gender Pricing
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {tt.genderPricing ? (
+                          <span className="text-xs">
+                            Male: {formatNaira(tt.malePrice || 0)} / Female: {formatNaira(tt.femalePrice || 0)}
+                          </span>
+                        ) : (
+                          formatNaira(tt.price)
+                        )}
+                      </td>
+                      <td>{tt.admits}</td>
+                      <td>{tt.quantity}</td>
+                      <td>{tt.sold || 0}</td>
+                      <td>
+                        {tt.imageUrl ? (
+                          <span className="text-[11px] text-accent font-medium flex items-center gap-1">
+                            ✓ Uploaded
+                          </span>
+                        ) : (
+                          <span className="text-xs text-text-muted">Standard</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
             </table>
           </div>
-          {/* Mobile card view */}
           <div className="sm:hidden space-y-2">
             {tickets.map(tt => (
               <div key={tt.id} className="card p-3">
@@ -1253,14 +1615,28 @@ function OwnerEventDetail() {
           </div>
           <div className="table-wrapper hidden sm:block">
             <table><thead><tr><th>Name</th><th>Code</th><th>Sold</th><th>Revenue</th><th>Status</th></tr></thead>
-              <tbody>{models.map(m => (<tr key={m.id}><td className="font-medium">{m.name}</td><td><code className="text-xs bg-canvas px-2 py-0.5 rounded">{m.referralCode}</code></td><td>{m.totalSold}</td><td>{formatNaira(m.revenue)}</td><td><Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.status}</Badge></td></tr>))}</tbody>
+              <tbody>
+                {models.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-4 text-xs text-text-muted">No models invited yet.</td></tr>
+                ) : (
+                  models.map(m => (
+                    <tr key={m.id}>
+                      <td className="font-medium">{m.name}</td>
+                      <td><code className="text-xs bg-canvas px-2 py-0.5 rounded">{m.referralCode}</code></td>
+                      <td>{m.totalSold || 0}</td>
+                      <td>{formatNaira(m.revenue || 0)}</td>
+                      <td><Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.status}</Badge></td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
             </table>
           </div>
           <div className="sm:hidden space-y-2">
             {models.map(m => (
               <div key={m.id} className="card p-3">
                 <div className="flex justify-between items-start">
-                  <div><p className="text-sm font-semibold">{m.name}</p><p className="text-xs text-text-muted">{m.totalSold} sold / {formatNaira(m.revenue)}</p></div>
+                  <div><p className="text-sm font-semibold">{m.name}</p><p className="text-xs text-text-muted">{m.totalSold || 0} sold / {formatNaira(m.revenue || 0)}</p></div>
                   <Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.status}</Badge>
                 </div>
                 <div className="mt-2 flex items-center gap-2"><code className="text-xs bg-canvas px-2 py-0.5 rounded font-mono">{m.referralCode}</code><CopyButton text={m.referralCode} /></div>
@@ -1272,9 +1648,21 @@ function OwnerEventDetail() {
       {tab === 'orders' && (
         <div className="table-wrapper">
           <table><thead><tr><th>Reference</th><th>Buyer</th><th>Tickets</th><th>Total</th><th>Status</th></tr></thead>
-            <tbody>{mockOrders.filter(o => o.eventId === event.id).map(order => (
-              <tr key={order.id}><td><code className="text-xs font-mono">{order.reference}</code></td><td>{order.buyerName}</td><td>{order.lines.map(l => `${l.ticketTypeName} x${l.quantity}`).join(', ')}</td><td className="font-medium">{formatNaira(order.total)}</td><td><Badge variant={order.status === 'paid' ? 'success' : 'warning'}>{order.status}</Badge></td></tr>
-            ))}</tbody>
+            <tbody>
+              {orders.length === 0 ? (
+                <tr><td colSpan={5} className="text-center py-4 text-xs text-text-muted">No orders placed yet.</td></tr>
+              ) : (
+                orders.map(order => (
+                  <tr key={order.id}>
+                    <td><code className="text-xs font-mono">{order.reference}</code></td>
+                    <td>{order.buyerName}</td>
+                    <td>{order.lines?.map(l => `${l.ticketTypeName} x${l.quantity}`).join(', ') || 'Tickets'}</td>
+                    <td className="font-medium">{formatNaira(order.total)}</td>
+                    <td><Badge variant={order.status === 'paid' ? 'success' : 'warning'}>{order.status}</Badge></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
           </table>
         </div>
       )}
@@ -1434,7 +1822,7 @@ function EditStaffModal({ staff, onClose, onSave }: { staff: GateStaff; onClose:
 
 // --------- OWNER MODELS PAGE ---------
 function OwnerModels() {
-  const [models, setModels] = useState<Model[]>(() => getStoredModels());
+  const [models, setModels] = useState<Model[]>([]);
   const [editTarget, setEditTarget] = useState<Model | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -1443,7 +1831,6 @@ function OwnerModels() {
     try {
       const list = await api.models.list();
       setModels(list);
-      saveStoredModels(list);
     } finally {
       setLoading(false);
     }
@@ -1453,7 +1840,6 @@ function OwnerModels() {
 
   const onSaved = (updated: Model) => {
     setModels(prev => prev.map(m => m.id === updated.id ? updated : m));
-    saveStoredModels(models.map(m => m.id === updated.id ? updated : m));
   };
 
   const quickAction = async (model: Model, newStatus: Model['status']) => {
@@ -1572,7 +1958,7 @@ function OwnerModels() {
 
 // --------- OWNER STAFF PAGE ---------
 function OwnerStaff() {
-  const [staffList, setStaffList] = useState<GateStaff[]>(() => getStoredStaff());
+  const [staffList, setStaffList] = useState<GateStaff[]>([]);
   const [editTarget, setEditTarget] = useState<GateStaff | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -1581,7 +1967,6 @@ function OwnerStaff() {
     try {
       const list = await api.staff.list();
       setStaffList(list);
-      saveStoredStaff(list);
     } finally {
       setLoading(false);
     }
@@ -1591,7 +1976,6 @@ function OwnerStaff() {
 
   const onSaved = (updated: GateStaff) => {
     setStaffList(prev => prev.map(s => s.id === updated.id ? updated : s));
-    saveStoredStaff(staffList.map(s => s.id === updated.id ? updated : s));
   };
 
   const quickAction = async (staff: GateStaff, newStatus: GateStaff['status']) => {
@@ -1723,40 +2107,47 @@ function OwnerStaff() {
 }
 
 function OwnerEarnings() {
+  const [payouts] = useState<any[]>([]);
   return (
     <div>
       <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Earnings</h1>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <StatCard label="Total" value={formatNaira(114375)} icon={DollarSign} delay={0} />
-        <StatCard label="Pending" value={formatNaira(33250)} icon={Clock} delay={50} />
-        <StatCard label="Settled" value={formatNaira(81125)} icon={Check} delay={100} />
+        <StatCard label="Total" value={formatNaira(0)} icon={DollarSign} delay={0} />
+        <StatCard label="Pending" value={formatNaira(0)} icon={Clock} delay={50} />
+        <StatCard label="Settled" value={formatNaira(0)} icon={Check} delay={100} />
       </div>
       <BentoCard>
         <h3 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Unlock', cursive" }}>History</h3>
-        <div className="space-y-2">
-          {mockPayouts.map(p => (
-            <div key={p.id} className="data-row flex items-center justify-between p-3.5 rounded-xl">
-              <div>
-                <p className="text-sm font-bold">{formatNaira(p.ownerAmount)}</p>
-                <p className="text-xs text-text-muted mt-0.5">{formatDate(p.createdAt)}</p>
+        {payouts.length === 0 ? (
+          <div className="py-8 text-center text-xs text-text-muted">No payout records yet.</div>
+        ) : (
+          <div className="space-y-2">
+            {payouts.map(p => (
+              <div key={p.id} className="data-row flex items-center justify-between p-3.5 rounded-xl">
+                <div>
+                  <p className="text-sm font-bold">{formatNaira(p.ownerAmount)}</p>
+                  <p className="text-xs text-text-muted mt-0.5">{formatDate(p.createdAt)}</p>
+                </div>
+                <Badge variant={p.status === 'settled' ? 'success' : 'warning'}>{p.status}</Badge>
               </div>
-              <Badge variant={p.status === 'settled' ? 'success' : 'warning'}>{p.status}</Badge>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </BentoCard>
     </div>
   );
 }
 
 // ============ ADMIN PAGES ============
-// ============ ADMIN PAGES ============
 function AdminOwners() {
-  const [planners, setPlanners] = useState(() => getStoredPlanners());
+  const [planners, setPlanners] = useState<any[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [search, setSearch] = useState('');
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  const events = getStoredEvents();
+  useEffect(() => {
+    api.events.list().then(setEvents).catch(() => {});
+  }, []);
 
   const handleDeactivate = async (plannerId: string, eventName?: string) => {
     if (!window.confirm(`Are you sure you want to deactivate this event organizer account? \n\nThe event "${eventName || 'Event'}" will remain in database history for financial audit and records, but will be closed from live sales. The organizer will no longer be able to log in or access this event.`)) {
@@ -1766,7 +2157,7 @@ function AdminOwners() {
     setLoadingId(plannerId);
     try {
       await api.admin.deactivateOrganizer(plannerId);
-      setPlanners(getStoredPlanners());
+      setPlanners(prev => prev.map(p => p.id === plannerId ? { ...p, status: 'deactivated' } : p));
       showToast('Event organizer account deactivated and closed. Event archived in history.', 'success');
     } catch (e: any) {
       showToast(e.message || 'Failed to deactivate organizer', 'error');
@@ -1911,7 +2302,7 @@ function AdminOwners() {
 }
 
 function AdminEvents() {
-  const [events, setEvents] = useState(() => getStoredEvents());
+  const [events, setEvents] = useState<Event[]>([]);
   const [pendingEvents, setPendingEvents] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'live' | 'ended'>('pending');
@@ -1941,6 +2332,7 @@ function AdminEvents() {
 
   useEffect(() => {
     loadPending();
+    api.events.list().then(setEvents).catch(() => {});
     api.auth.getBanks().then(setBanksList).catch(() => { });
   }, []);
 
@@ -1950,10 +2342,7 @@ function AdminEvents() {
       await api.admin.approveEvent(eventId);
       showToast(`Event "${eventName}" approved! Paystack subaccount created.`, 'success');
       loadPending();
-      // Update local storage
-      const updated = events.map(e => e.id === eventId ? { ...e, approval_status: 'approved', status: 'active' as const } : e);
-      saveStoredEvents(updated);
-      setEvents(updated);
+      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, approval_status: 'approved', status: 'active' as const } : e));
     } catch (err: any) {
       showToast(err.message || 'Failed to approve event', 'error');
     } finally {
@@ -1970,9 +2359,7 @@ function AdminEvents() {
       await api.admin.rejectEvent(eventId, reason);
       showToast(`Event "${eventName}" rejected.`, 'info');
       loadPending();
-      const updated = events.map(e => e.id === eventId ? { ...e, approval_status: 'rejected', status: 'draft' as const } : e);
-      saveStoredEvents(updated);
-      setEvents(updated);
+      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, approval_status: 'rejected', status: 'draft' as const } : e));
     } catch (err: any) {
       showToast(err.message || 'Failed to reject event', 'error');
     } finally {
@@ -2013,9 +2400,10 @@ function AdminEvents() {
     if (!window.confirm(`Close event "${evtName}"? It will remain in system history for audit and financial records, but will no longer be live for ticket sales.`)) {
       return;
     }
-    const updated = events.map(e => e.id === evtId ? { ...e, status: 'ended' as const } : e);
-    saveStoredEvents(updated);
-    setEvents(updated);
+    try {
+      await api.events.update(evtId, { status: 'ended' });
+    } catch {}
+    setEvents(prev => prev.map(e => e.id === evtId ? { ...e, status: 'ended' as const } : e));
     showToast(`Event "${evtName}" closed from live sales. Preserved in history.`, 'success');
   };
 
@@ -2297,22 +2685,62 @@ function AdminEvents() {
 }
 
 function AdminOrders() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    api.orders.list().then(setOrders).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = orders.filter(o =>
+    (o.reference || '').toLowerCase().includes(search.toLowerCase()) ||
+    (o.buyerName || '').toLowerCase().includes(search.toLowerCase()) ||
+    (o.buyerEmail || '').toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div>
-      <SectionHeader title="Orders" action={<Input placeholder="Search..." icon={Search} className="max-w-[200px] sm:max-w-xs" />} />
-      <div className="space-y-2 sm:hidden">
-        {mockOrders.map(o => (
-          <div key={o.id} className="card p-3">
-            <div className="flex justify-between items-start"><div><p className="text-sm font-medium">{o.buyerName}</p><p className="text-xs text-text-muted">{o.buyerEmail}</p></div><Badge variant={o.status === 'paid' ? 'success' : 'warning'}>{o.status}</Badge></div>
-            <div className="flex justify-between mt-2 text-xs"><span className="text-text-secondary">{o.lines.map(l => l.ticketTypeName).join(', ')}</span><span className="font-semibold">{formatNaira(o.total)}</span></div>
+      <SectionHeader title="Orders" action={<Input placeholder="Search orders..." icon={Search} value={search} onChange={setSearch} className="max-w-[200px] sm:max-w-xs" />} />
+      {loading ? (
+        <div className="card p-8 text-center text-xs text-text-muted">Loading orders...</div>
+      ) : filtered.length === 0 ? (
+        <div className="card p-8 text-center text-xs text-text-muted">No orders found.</div>
+      ) : (
+        <>
+          <div className="space-y-2 sm:hidden">
+            {filtered.map(o => (
+              <div key={o.id} className="card p-3">
+                <div className="flex justify-between items-start">
+                  <div><p className="text-sm font-medium">{o.buyerName}</p><p className="text-xs text-text-muted">{o.buyerEmail}</p></div>
+                  <Badge variant={o.status === 'paid' ? 'success' : 'warning'}>{o.status}</Badge>
+                </div>
+                <div className="flex justify-between mt-2 text-xs">
+                  <span className="text-text-secondary">{o.lines?.map(l => l.ticketTypeName).join(', ') || 'Tickets'}</span>
+                  <span className="font-semibold">{formatNaira(o.total)}</span>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="table-wrapper hidden sm:block">
-        <table><thead><tr><th>Reference</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
-          <tbody>{mockOrders.map(o => (<tr key={o.id}><td><code className="text-xs font-mono">{o.reference}</code></td><td>{o.buyerName}</td><td className="font-medium">{formatNaira(o.total)}</td><td><Badge variant={o.status === 'paid' ? 'success' : 'warning'}>{o.status}</Badge></td><td className="text-xs">{formatDateTime(o.createdAt)}</td></tr>))}</tbody>
-        </table>
-      </div>
+          <div className="table-wrapper hidden sm:block">
+            <table>
+              <thead><tr><th>Reference</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
+              <tbody>
+                {filtered.map(o => (
+                  <tr key={o.id}>
+                    <td><code className="text-xs font-mono">{o.reference}</code></td>
+                    <td>{o.buyerName}</td>
+                    <td className="font-medium">{formatNaira(o.total)}</td>
+                    <td><Badge variant={o.status === 'paid' ? 'success' : 'warning'}>{o.status}</Badge></td>
+                    <td className="text-xs">{formatDateTime(o.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2412,19 +2840,30 @@ function AdminSettings() {
 }
 
 function AdminAudit() {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+
   return (
     <div>
       <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Audit Log</h1>
-      <div className="space-y-2">
-        {mockAuditLogs.map(log => (
-          <div key={log.id} className="card p-3">
-            <div className="flex items-start gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-navy mt-1.5 shrink-0" />
-              <div className="min-w-0"><p className="text-xs sm:text-sm text-text-primary">{log.details}</p><p className="text-xs text-text-muted mt-0.5">{log.userId} - {formatDateTime(log.createdAt)}</p></div>
+      {logs.length === 0 ? (
+        <div className="card p-8 text-center text-xs text-text-muted">
+          No audit entries logged yet. All administrative actions and fee adjustments are recorded here.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {logs.map(log => (
+            <div key={log.id} className="card p-3">
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-navy mt-1.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm text-text-primary">{log.details}</p>
+                  <p className="text-xs text-text-muted mt-0.5">{log.userId} - {formatDateTime(log.createdAt)}</p>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2725,7 +3164,7 @@ function AdminLogin() {
         </div>
         {step === 'email' ? (
           <div className="card p-5 sm:p-6 space-y-4">
-            <Input label="Email" type="email" placeholder="admin@tikiti.ng" value={email} onChange={setEmail} autoFocus />
+            <Input label="Email" type="email" placeholder="admin@example.com" value={email} onChange={setEmail} autoFocus />
             <Input label="Password" type="password" placeholder="Enter password" value={password} onChange={setPassword} />
             <Button className="w-full" onClick={() => { if (email && password) setStep('2fa'); }}>Continue</Button>
             <p className="text-xs text-center" style={{ color: 'var(--text-muted, #6B7280)' }}><Lock size={12} className="inline mr-1" />Protected by 2FA</p>
@@ -2751,7 +3190,13 @@ function AdminLogin() {
 // ============ STUB PAGES ============
 function CreateEventForm() {
   const navigate = useNavigate();
-  const events = getStoredEvents();
+  const [events, setEvents] = useState<Event[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    api.events.list(true).then(setEvents).catch(() => {});
+  }, []);
+
   let user: any = null;
   try {
     const raw = localStorage.getItem('tiketi_user');
@@ -2878,30 +3323,33 @@ function CreateEventForm() {
         <div className="flex items-center gap-3 pt-2">
           <Button
             variant="primary"
-            onClick={() => {
+            loading={creating}
+            onClick={async () => {
               if (!name.trim() || !description.trim() || !venue.trim() || !date || !salesEnd || !capacity) {
                 showToast('Please fill in all required fields', 'error');
                 return;
               }
-              const newEvt: Event = {
-                id: `evt_${Date.now()}`,
-                ownerId: 'owner_1',
-                name: name.trim(),
-                description: description.trim(),
-                venue: venue.trim(),
-                eventDate: date,
-                timezone: 'Africa/Lagos',
-                salesEndDate: salesEnd,
-                capacity: parseInt(capacity) || 500,
-                status: 'active',
-                bannerUrl: 'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?auto=format&fit=crop&w=1200&q=80',
-                posterUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=600&q=80',
-                createdAt: new Date().toISOString(),
-              };
-              const current = getStoredEvents();
-              saveStoredEvents([newEvt, ...current]);
-              showToast('Event created successfully!', 'success');
-              navigate('/owner/events');
+              setCreating(true);
+              try {
+                await api.events.create({
+                  name: name.trim(),
+                  description: description.trim(),
+                  venue: venue.trim(),
+                  eventDate: date,
+                  timezone: 'Africa/Lagos',
+                  salesEndDate: salesEnd,
+                  capacity: parseInt(capacity) || 500,
+                  status: 'active',
+                  bannerUrl: '/default-cover.png',
+                  posterUrl: '/default-cover.png',
+                });
+                showToast('Event created successfully!', 'success');
+                navigate('/owner/events');
+              } catch (err: any) {
+                showToast(err.message || 'Failed to create event', 'error');
+              } finally {
+                setCreating(false);
+              }
             }}
           >
             Create Event
@@ -2953,8 +3401,13 @@ function TicketTypeForm() {
       return;
     }
 
+    if (!eventId) {
+      showToast('No event selected for ticket tier', 'error');
+      return;
+    }
+
     try {
-      await api.ticketTypes.create(eventId || 'evt_1', {
+      await api.ticketTypes.create(eventId, {
         name: name.trim(),
         genderPricing,
         gender_pricing: genderPricing,
@@ -3067,12 +3520,21 @@ function ModelInviteForm() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [eventId, setEventId] = useState(mockEvents[0]?.id || 'evt_1');
+  const [events, setEvents] = useState<Event[]>([]);
+  const [eventId, setEventId] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<{ code: string; name: string; inviteUrl: string } | null>(null);
 
+  useEffect(() => {
+    api.events.list(true).then(list => {
+      setEvents(list);
+      if (list.length > 0) setEventId(list[0].id);
+    }).catch(() => {});
+  }, []);
+
   const handleSubmit = async () => {
     if (!name.trim() || !email.trim()) { showToast('Name and email are required', 'error'); return; }
+    if (!eventId) { showToast('Please select an event', 'error'); return; }
     setLoading(true);
     try {
       const model = await api.models.invite({ event_id: eventId, name: name.trim(), email: email.trim() });
@@ -3133,7 +3595,7 @@ function ModelInviteForm() {
             value={eventId}
             onChange={e => setEventId(e.target.value)}
           >
-            {mockEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
           </select>
         </div>
         <Input label="Model Name" placeholder="Full name" value={name} onChange={(e: any) => setName(e.target.value)} />
@@ -3148,12 +3610,21 @@ function StaffInviteForm() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [eventId, setEventId] = useState(mockEvents[0]?.id || 'evt_1');
+  const [events, setEvents] = useState<Event[]>([]);
+  const [eventId, setEventId] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<{ name: string; inviteUrl: string } | null>(null);
 
+  useEffect(() => {
+    api.events.list(true).then(list => {
+      setEvents(list);
+      if (list.length > 0) setEventId(list[0].id);
+    }).catch(() => {});
+  }, []);
+
   const handleSubmit = async () => {
     if (!name.trim() || !email.trim()) { showToast('Name and email are required', 'error'); return; }
+    if (!eventId) { showToast('Please select an event', 'error'); return; }
     setLoading(true);
     try {
       const staff = await api.staff.add({ event_id: eventId, name: name.trim(), email: email.trim() });
@@ -3209,7 +3680,7 @@ function StaffInviteForm() {
             value={eventId}
             onChange={e => setEventId(e.target.value)}
           >
-            {mockEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
           </select>
         </div>
         <Input label="Staff Name" placeholder="Full name" value={name} onChange={(e: any) => setName(e.target.value)} />
@@ -3223,7 +3694,7 @@ function StaffInviteForm() {
 function CheckInHistory() {
   const { eventId } = useParams<{ eventId?: string }>();
   const navigate = useNavigate();
-  const checkedTickets = mockTickets.filter(t => t.checkedIn);
+  const [checkedTickets, setCheckedTickets] = useState<Ticket[]>([]);
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl mx-auto">

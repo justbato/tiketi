@@ -199,7 +199,7 @@ orderRoutes.post('/', async (c) => {
       subaccount_code: paystackSubaccount,
       transaction_charge_kobo: split.platform_fee_kobo,
       fee_bearer: 'subaccount',
-      callback_url: `${(process.env.FRONTEND_URL || 'https://tiketi.ng').split(',')[0].trim()}/payment/callback`,
+      callback_url: `${(process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim()}/payment/callback`,
       metadata: {
         order_id: order.id,
         order_ref: orderRef,

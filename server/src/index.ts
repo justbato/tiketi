@@ -38,8 +38,8 @@ function validateEnv() {
 // SUPABASE CLIENT
 // =============================================
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://mock-supabase.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'mock-service-role-key';
+const supabaseUrl = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'service-role-key-placeholder';
 export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
 
 // =============================================
@@ -83,8 +83,12 @@ app.use('*', async (c, next) => {
 // Request ID for tracing
 app.use('*', requestId());
 
-// Security headers (replaces Helmet)
-app.use('*', secureHeaders());
+// Security headers with camera permission allowed
+app.use('*', secureHeaders({
+  permissionsPolicy: {
+    camera: ['self'],
+  },
+}));
 
 // Logger with request ID
 app.use('*', async (c, next) => {
@@ -184,6 +188,123 @@ app.get('/api/health', (c) => {
 });
 
 // =============================================
+// SOCIAL CRAWLER & EVENT PREVIEW HTML
+// =============================================
+
+function escapeHtml(str: string): string {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function renderEventHtml(eventId: string, siteUrl: string): Promise<{ html: string; status: number }> {
+  // Query event from Supabase
+  const { data: event, error } = await supabase
+    .from('events')
+    .select('id, name, description, venue, poster_url, banner_url, status, approval_status')
+    .eq('id', eventId)
+    .single();
+
+  // If not found, draft, or not approved, do not leak any event details
+  if (error || !event || event.status === 'draft' || event.approval_status !== 'approved') {
+    const notFoundHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Event Not Found | TiKeTi</title>
+    <meta name="robots" content="noindex, nofollow" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`;
+    return { html: notFoundHtml, status: 404 };
+  }
+
+  const escapedTitle = escapeHtml(event.name);
+  const rawDesc = event.description || `Get tickets for ${event.name} on TiKeTi!`;
+  const escapedDesc = escapeHtml(rawDesc.slice(0, 200));
+  const canonicalUrl = `${siteUrl}/event/${encodeURIComponent(event.id)}`;
+  
+  let imageUrl = event.poster_url || event.banner_url || '';
+  if (!imageUrl || imageUrl.trim() === '') {
+    imageUrl = `${siteUrl}/default-cover.png`;
+  } else if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+    const clean = imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`;
+    imageUrl = `${siteUrl}${clean}`;
+  } else {
+    imageUrl = imageUrl.replace(/^http:\/\//i, 'https://');
+  }
+
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5" />
+    <meta name="theme-color" content="#2563EB" />
+    <title>${escapedTitle} | TiKeTi</title>
+    <meta name="description" content="${escapedDesc}" />
+    <link rel="canonical" href="${canonicalUrl}" />
+
+    <!-- Open Graph / Facebook / WhatsApp -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TiKeTi" />
+    <meta property="og:title" content="${escapedTitle}" />
+    <meta property="og:description" content="${escapedDesc}" />
+    <meta property="og:image" content="${imageUrl}" />
+    <meta property="og:image:secure_url" content="${imageUrl}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:url" content="${canonicalUrl}" />
+
+    <!-- Twitter / X Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapedTitle}" />
+    <meta name="twitter:description" content="${escapedDesc}" />
+    <meta name="twitter:image" content="${imageUrl}" />
+
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Unlock&family=Slackey&family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; }
+      body { font-family: 'Archivo', sans-serif; background: #F0F2F5; color: #0F172A; }
+      body.dark-mode { background: #12151B; color: #FFFFFF; }
+      body.light-mode { background: #F0F2F5; color: #0F172A; }
+      #root { width: 100%; min-height: 100vh; min-height: 100dvh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`;
+
+  return { html, status: 200 };
+}
+
+app.get('/event/:id', async (c) => {
+  const { id } = c.req.param();
+  const siteUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim().replace(/\/+$/, '');
+  const { html, status } = await renderEventHtml(id, siteUrl);
+  return c.html(html, status as any);
+});
+
+app.get('/e/:id', async (c) => {
+  const { id } = c.req.param();
+  const siteUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim().replace(/\/+$/, '');
+  const { html, status } = await renderEventHtml(id, siteUrl);
+  return c.html(html, status as any);
+});
+
+// =============================================
 // ROUTES
 // =============================================
 
@@ -212,7 +333,6 @@ app.onError((err, c) => {
   const reqId = c.get('requestId' as never) || 'unknown';
   console.error(`[${reqId}] Unhandled error:`, err);
   
-  // Don't leak internal errors in production
   if (process.env.NODE_ENV === 'production') {
     return c.json({ error: 'Internal server error' }, 500);
   }

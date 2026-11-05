@@ -151,7 +151,7 @@ export function TicketPass({
   const [qrUrl, setQrUrl] = useState<string>('');
   const [copied, setCopied] = useState(false);
 
-  const partyImage = ticket.ticketImageUrl || '/posters/unifest_concert.jpg';
+  const partyImage = ticket.ticketImageUrl || '/default-cover.png';
   const orientation = useImageOrientation(ticket.ticketImageUrl);
 
   useEffect(() => {

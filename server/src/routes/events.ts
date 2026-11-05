@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv, JwtPayload } from '../index.js';
-import { requireAuth, verifyEventOwnership } from '../middleware/auth.js';
+import { requireAuth, optionalAuth, verifyEventOwnership } from '../middleware/auth.js';
 import { supabase } from '../index.js';
 
 // =============================================
@@ -19,9 +19,9 @@ const createEventSchema = z.object({
   timezone: z.string().default('Africa/Lagos'),
   sales_end_date: z.string(),
   capacity: z.number().int().min(1).max(1000000),
-  banner_url: z.string().url().optional(),
-  logo_url: z.string().url().optional(),
-  poster_url: z.string().url().optional(),
+  banner_url: z.string().url().optional().nullable(),
+  logo_url: z.string().url().optional().nullable(),
+  poster_url: z.string().url().optional().nullable(),
   category: z.string().max(40).optional().transform(v => {
     const trimmed = (v || '').trim();
     return trimmed.length > 0 ? trimmed.slice(0, 40) : 'Other';
@@ -32,12 +32,12 @@ const ticketTypeSchema = z.object({
   name: z.string().min(1).max(100),
   gender_pricing: z.boolean().default(false),
   gender: z.string().optional(),
-  price: z.number().min(0).max(10000000).optional(),
-  male_price: z.number().min(0).max(10000000).optional(),
-  female_price: z.number().min(0).max(10000000).optional(),
+  price: z.number().min(0).max(10000000).optional().nullable(),
+  male_price: z.number().min(0).max(10000000).optional().nullable(),
+  female_price: z.number().min(0).max(10000000).optional().nullable(),
   quantity: z.number().int().min(1).max(100000),
   admits: z.number().int().min(1).max(20).default(1),
-  ticket_image_url: z.string().url().optional(),
+  ticket_image_url: z.string().url().optional().nullable(),
   ticket_tier: z.string().max(50).optional(),
 });
 
@@ -48,7 +48,9 @@ const updateEventSchema = z.object({
   event_date: z.string().optional(),
   sales_end_date: z.string().optional(),
   capacity: z.number().int().min(1).max(1000000).optional(),
-  status: z.enum(['draft', 'active', 'ended']).optional(),
+  banner_url: z.string().url().optional().nullable(),
+  poster_url: z.string().url().optional().nullable(),
+  status: z.enum(['draft', 'active', 'ended', 'cancelled']).optional(),
   category: z.string().max(40).optional().transform(v => {
     if (v === undefined) return undefined;
     const trimmed = v.trim();
@@ -66,7 +68,7 @@ export const eventRoutes = new Hono<AppEnv>();
 eventRoutes.get('/public', async (c) => {
   const { data: events, error } = await supabase
     .from('events')
-    .select('id, name, venue, event_date, poster_url, banner_url, category, approval_status, status')
+    .select('id, name, description, venue, event_date, sales_end_date, capacity, poster_url, banner_url, category, approval_status, status, created_at')
     .eq('status', 'active')
     .eq('approval_status', 'approved')
     .order('event_date', { ascending: true });
@@ -79,10 +81,127 @@ eventRoutes.get('/public', async (c) => {
   return c.json({ events: events || [] });
 });
 
-eventRoutes.use('*', requireAuth);
+// Public single event by ID (only approved and non-draft)
+eventRoutes.get('/public/:id', async (c) => {
+  const { id } = c.req.param();
+
+  const { data: event, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !event) {
+    return c.json({ error: 'Event not found' }, 404);
+  }
+
+  if (event.approval_status !== 'approved' || event.status === 'draft') {
+    return c.json({ error: 'Event not found or not publicly accessible' }, 404);
+  }
+
+  return c.json({ event });
+});
+
+// List ticket types for an event (public for approved events or owner)
+eventRoutes.get('/:id/ticket-types', optionalAuth, async (c) => {
+  const { id } = c.req.param();
+  const user = c.get('user') as JwtPayload | null;
+
+  // Check event exists
+  const { data: event, error: eventErr } = await supabase
+    .from('events')
+    .select('id, organizer_id, planner_id, owner_id, approval_status, status')
+    .eq('id', id)
+    .single();
+
+  if (eventErr || !event) {
+    return c.json({ error: 'Event not found' }, 404);
+  }
+
+  const isOwner = user && (
+    event.organizer_id === user.id ||
+    event.planner_id === user.id ||
+    (event as any).owner_id === user.id ||
+    user.role === 'admin'
+  );
+
+  // If not owner, only show if approved and not draft
+  if (!isOwner && (event.approval_status !== 'approved' || event.status === 'draft')) {
+    return c.json({ error: 'Event not found or not publicly accessible' }, 404);
+  }
+
+  const { data: types, error } = await supabase
+    .from('ticket_types')
+    .select('*')
+    .eq('event_id', id)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    return c.json({ error: 'Failed to fetch ticket types' }, 500);
+  }
+
+  return c.json({ ticketTypes: types || [] });
+});
+
+// Get single event: accessible publicly if approved & not draft, or fully if owner/admin
+eventRoutes.get('/:id', optionalAuth, async (c) => {
+  const { id } = c.req.param();
+  const user = c.get('user') as JwtPayload | null;
+
+  const { data: event, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !event) {
+    return c.json({ error: 'Event not found' }, 404);
+  }
+
+  const isOwner = user && (
+    event.organizer_id === user.id || 
+    event.planner_id === user.id || 
+    (event as any).owner_id === user.id ||
+    user.role === 'admin'
+  );
+
+  if (isOwner) {
+    return c.json({ event });
+  }
+
+  if (event.approval_status === 'approved' && event.status !== 'draft') {
+    return c.json({ event });
+  }
+
+  return c.json({ error: 'Event not found or not publicly accessible' }, 404);
+});
+
+// =============================================
+// AUTHENTICATED ROUTES
+// =============================================
+
+// List events for organizer/owner
+eventRoutes.get('/', requireAuth, async (c) => {
+  const user = c.get('user') as JwtPayload;
+
+  let query = supabase.from('events').select('*');
+
+  if (user.role === 'owner' || user.role === 'planner' || user.role === 'organizer') {
+    query = query.or(`organizer_id.eq.${user.id},planner_id.eq.${user.id},owner_id.eq.${user.id}`);
+  }
+
+  const { data: events, error } = await query.order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('events list error:', error);
+    return c.json({ error: 'Failed to fetch events' }, 500);
+  }
+
+  return c.json({ events: events || [] });
+});
 
 // Create event (Defaults to approval_status: 'pending')
-eventRoutes.post('/', async (c) => {
+eventRoutes.post('/', requireAuth, async (c) => {
   let body: z.infer<typeof createEventSchema>;
   try {
     body = createEventSchema.parse(await c.req.json());
@@ -136,59 +255,11 @@ eventRoutes.post('/', async (c) => {
     details: `Created event: ${event.name} (pending approval)`
   });
 
-  return c.json(event, 201);
-});
-
-// List events for organizer/owner
-eventRoutes.get('/', async (c) => {
-  const user = c.get('user') as JwtPayload;
-
-  let query = supabase.from('events').select('*');
-
-  if (user.role === 'owner' || user.role === 'planner' || user.role === 'organizer') {
-    query = query.or(`organizer_id.eq.${user.id},planner_id.eq.${user.id},owner_id.eq.${user.id}`);
-  }
-
-  const { data: events, error } = await query.order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('events list error:', error);
-    return c.json({ error: 'Failed to fetch events' }, 500);
-  }
-
-  return c.json({ events });
-});
-
-// Get single event
-eventRoutes.get('/:id', async (c) => {
-  const { id } = c.req.param();
-  const user = c.get('user') as JwtPayload;
-
-  const { data: event, error } = await supabase
-    .from('events')
-    .select('*')
-    .eq('id', id)
-    .single();
-
-  if (error || !event) {
-    return c.json({ error: 'Event not found' }, 404);
-  }
-
-  const isOwner = 
-    event.organizer_id === user.id || 
-    event.planner_id === user.id || 
-    (event as any).owner_id === user.id ||
-    user.role === 'admin';
-
-  if (!isOwner) {
-    return c.json({ error: 'Access denied' }, 403);
-  }
-
-  return c.json({ event });
+  return c.json({ event }, 201);
 });
 
 // Update event
-eventRoutes.put('/:id', async (c) => {
+eventRoutes.put('/:id', requireAuth, async (c) => {
   const { id } = c.req.param();
   let body: z.infer<typeof updateEventSchema>;
   
@@ -229,7 +300,7 @@ eventRoutes.put('/:id', async (c) => {
 });
 
 // Delete event (soft delete)
-eventRoutes.delete('/:id', async (c) => {
+eventRoutes.delete('/:id', requireAuth, async (c) => {
   const { id } = c.req.param();
   const user = c.get('user') as JwtPayload;
   const { authorized } = await verifyEventOwnership(supabase, id, user.id, user.role);
@@ -260,7 +331,7 @@ eventRoutes.delete('/:id', async (c) => {
 });
 
 // Get event stats
-eventRoutes.get('/:id/stats', async (c) => {
+eventRoutes.get('/:id/stats', requireAuth, async (c) => {
   const { id } = c.req.param();
   const user = c.get('user') as JwtPayload;
   const { authorized } = await verifyEventOwnership(supabase, id, user.id, user.role);
@@ -292,22 +363,8 @@ eventRoutes.get('/:id/stats', async (c) => {
   });
 });
 
-// List ticket types for an event
-eventRoutes.get('/:id/ticket-types', async (c) => {
-  const { id } = c.req.param();
-
-  const { data: types, error } = await supabase
-    .from('ticket_types')
-    .select('*')
-    .eq('event_id', id)
-    .order('created_at', { ascending: true });
-
-  if (error) return c.json({ error: 'Failed to fetch ticket types' }, 500);
-  return c.json({ ticketTypes: types || [] });
-});
-
 // Create a ticket type for an event
-eventRoutes.post('/:id/ticket-types', async (c) => {
+eventRoutes.post('/:id/ticket-types', requireAuth, async (c) => {
   const { id } = c.req.param();
   let body: z.infer<typeof ticketTypeSchema>;
   
@@ -351,7 +408,7 @@ eventRoutes.post('/:id/ticket-types', async (c) => {
 });
 
 // Update a ticket type
-eventRoutes.put('/:id/ticket-types/:ttId', async (c) => {
+eventRoutes.put('/:id/ticket-types/:ttId', requireAuth, async (c) => {
   const { id, ttId } = c.req.param();
   let body: Partial<z.infer<typeof ticketTypeSchema>>;
   
@@ -390,7 +447,7 @@ eventRoutes.put('/:id/ticket-types/:ttId', async (c) => {
 });
 
 // Delete a ticket type
-eventRoutes.delete('/:id/ticket-types/:ttId', async (c) => {
+eventRoutes.delete('/:id/ticket-types/:ttId', requireAuth, async (c) => {
   const { id, ttId } = c.req.param();
   const user = c.get('user') as JwtPayload;
   const { authorized } = await verifyEventOwnership(supabase, id, user.id, user.role);

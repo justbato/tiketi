@@ -1,168 +1,17 @@
 import {
-  mockEvents, mockModels, mockGateStaff, mockOrders, mockTickets, mockTicketTypes,
-  generateTicketCode,
-  type Event, type Model, type GateStaff, type Order, type Ticket, type TicketType
+  type Event,
+  type Model,
+  type GateStaff,
+  type Order,
+  type Ticket,
+  type TicketType
 } from './data';
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api';
+const API_BASE = ((import.meta as any).env?.VITE_API_URL ?? '') + '/api';
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('token');
   return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-// Local persistent storage keys for state persistence
-const MODELS_STORAGE_KEY = 'tikiti_models_data';
-const STAFF_STORAGE_KEY = 'tikiti_staff_data';
-const EVENTS_STORAGE_KEY = 'tikiti_events_data';
-const ORDERS_STORAGE_KEY = 'tikiti_orders_data';
-const TICKET_TYPES_STORAGE_KEY = 'tikiti_ticket_types_data';
-const PLANNERS_STORAGE_KEY = 'tikiti_planners_data';
-
-export interface StoredPlannerAccount {
-  id: string;
-  email: string;
-  name: string;
-  eventId?: string;
-  eventName?: string;
-  status: 'active' | 'suspended' | 'deactivated';
-  created_at: string;
-}
-
-export function getStoredPlanners(): StoredPlannerAccount[] {
-  try {
-    const data = localStorage.getItem(PLANNERS_STORAGE_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error(e);
-  }
-  return [];
-}
-
-export function saveStoredPlanners(planners: StoredPlannerAccount[]) {
-  try {
-    localStorage.setItem(PLANNERS_STORAGE_KEY, JSON.stringify(planners));
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-// Helper to initialize local persistent state
-export function getStoredModels(): Model[] {
-  try {
-    const data = localStorage.getItem(MODELS_STORAGE_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error(e);
-  }
-  return [...mockModels];
-}
-
-export function saveStoredModels(models: Model[]) {
-  try {
-    localStorage.setItem(MODELS_STORAGE_KEY, JSON.stringify(models));
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-export function getStoredStaff(): GateStaff[] {
-  try {
-    const data = localStorage.getItem(STAFF_STORAGE_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error(e);
-  }
-  return [...mockGateStaff];
-}
-
-export function saveStoredStaff(staff: GateStaff[]) {
-  try {
-    localStorage.setItem(STAFF_STORAGE_KEY, JSON.stringify(staff));
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-export function getStoredEvents(): Event[] {
-  try {
-    const data = localStorage.getItem(EVENTS_STORAGE_KEY);
-    if (data) {
-      const parsed: Event[] = JSON.parse(data);
-      // Merge with mockEvents to guarantee updated poster URLs and new active events
-      const merged = parsed.map(e => {
-        const mock = mockEvents.find(m => m.id === e.id);
-        return {
-          ...e,
-          posterUrl: e.posterUrl || mock?.posterUrl || '',
-          bannerUrl: e.bannerUrl || mock?.bannerUrl || '',
-        };
-      });
-      // Add any mockEvents not currently in storage
-      for (const m of mockEvents) {
-        if (!merged.some(e => e.id === m.id)) {
-          merged.push(m);
-        }
-      }
-      return merged;
-    }
-  } catch (e) {
-    console.error(e);
-  }
-  return [...mockEvents];
-}
-
-export function saveStoredEvents(events: Event[]) {
-  try {
-    localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(events));
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-export function getStoredOrders(): Order[] {
-  try {
-    const data = localStorage.getItem(ORDERS_STORAGE_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {
-    console.error(e);
-  }
-  return [...mockOrders];
-}
-
-export function saveStoredOrders(orders: Order[]) {
-  try {
-    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-export function getStoredTicketTypes(): TicketType[] {
-  try {
-    const data = localStorage.getItem(TICKET_TYPES_STORAGE_KEY);
-    if (data) {
-      const parsed: TicketType[] = JSON.parse(data);
-      const merged = [...parsed];
-      for (const m of mockTicketTypes) {
-        if (!merged.some(t => t.id === m.id)) {
-          merged.push(m);
-        }
-      }
-      return merged;
-    }
-  } catch (e) {
-    console.error(e);
-  }
-  return [...mockTicketTypes];
-}
-
-export function saveStoredTicketTypes(tickets: TicketType[]) {
-  try {
-    localStorage.setItem(TICKET_TYPES_STORAGE_KEY, JSON.stringify(tickets));
-  } catch (e) {
-    console.error(e);
-  }
 }
 
 // API Client
@@ -176,23 +25,10 @@ export const api = {
           const data = await res.json();
           if (Array.isArray(data.banks)) return data.banks;
         }
-      } catch {}
-      return [
-        { id: 1, name: 'Access Bank', code: '044' },
-        { id: 2, name: 'Zenith Bank', code: '057' },
-        { id: 3, name: 'Guaranty Trust Bank (GTBank)', code: '058' },
-        { id: 4, name: 'First Bank of Nigeria', code: '011' },
-        { id: 5, name: 'United Bank for Africa (UBA)', code: '033' },
-        { id: 6, name: 'Fidelity Bank', code: '070' },
-        { id: 7, name: 'Union Bank of Nigeria', code: '032' },
-        { id: 8, name: 'Stanbic IBTC Bank', code: '221' },
-        { id: 9, name: 'Sterling Bank', code: '232' },
-        { id: 10, name: 'Polaris Bank', code: '076' },
-        { id: 11, name: 'Kuda Bank', code: '50211' },
-        { id: 12, name: 'Opay (Paycom)', code: '999992' },
-        { id: 13, name: 'PalmPay', code: '999991' },
-        { id: 14, name: 'Moniepoint MFB', code: '50515' },
-      ];
+      } catch (e) {
+        console.error('Failed to fetch banks:', e);
+      }
+      return [];
     },
 
     async resolveAccount(accountNumber: string, bankCode: string): Promise<string> {
@@ -214,19 +50,10 @@ export const api = {
           const data = await res.json();
           if (Array.isArray(data.accounts)) return data.accounts;
         }
-      } catch {}
-
-      // Storage fallback
-      const planners = getStoredPlanners();
-      return planners
-        .filter(p => p.email.toLowerCase() === clean)
-        .map(p => ({
-          // SECURITY: never expose bank details in email lookup
-          id: p.id,
-          event_id: p.eventId || null,
-          event_name: p.eventName || 'Event Account',
-          status: p.status,
-        }));
+      } catch (e) {
+        console.error('Failed to fetch accounts by email:', e);
+      }
+      return [];
     },
 
     async login(email: string, password: string, role: 'organizer' | 'planner' | 'model' | 'gate' | 'admin' = 'organizer', accountId?: string) {
@@ -242,7 +69,7 @@ export const api = {
         }
         const data = await res.json();
         if (data.multiple) {
-          return data; // Multiple accounts for organizer, return for selection
+          return data;
         }
         if (data.token) {
           localStorage.setItem('token', data.token);
@@ -252,7 +79,7 @@ export const api = {
         return data;
       } catch (err: any) {
         if (err.message && !err.message.includes('fetch')) throw err;
-        throw new Error('Cannot reach the server. Please try again.');
+        throw new Error('Cannot reach the server. Please check your connection.');
       }
     },
 
@@ -285,11 +112,9 @@ export const api = {
         return data;
       } catch (err: any) {
         if (err.message && !err.message.includes('fetch')) throw err;
-        throw new Error('Cannot reach the server. Please try again.');
+        throw new Error('Cannot reach the server. Please check your connection.');
       }
     },
-
-    // registerPlanner is deprecated - use registerOrganizer instead (KYC removed)
 
     async confirmInvite(token: string, password: string, role: 'model' | 'gate') {
       try {
@@ -316,10 +141,14 @@ export const api = {
     },
 
     async verifyToken() {
-      const res = await fetch(`${API_BASE}/auth/verify`, {
-        headers: getAuthHeader(),
-      });
-      return res.ok;
+      try {
+        const res = await fetch(`${API_BASE}/auth/verify`, {
+          headers: getAuthHeader(),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
     },
 
     logout() {
@@ -330,19 +159,12 @@ export const api = {
 
     async getInviteInfo(token: string): Promise<{ role: 'model' | 'gate'; name: string; email: string } | null> {
       try {
-        const res = await fetch(`${API_BASE}/auth/invite/${token}`);
+        const res = await fetch(`${API_BASE}/auth/invite/${encodeURIComponent(token)}`);
         if (res.ok) {
           return await res.json();
         }
-      } catch {}
-      // Fallback: check stored models and staff
-      const model = getStoredModels().find((m: any) => m.inviteToken === token || m.referralCode === token || m.id === token);
-      if (model) {
-        return { role: 'model', name: model.name, email: model.email };
-      }
-      const staff = getStoredStaff().find((s: any) => s.inviteToken === token || s.id === token);
-      if (staff) {
-        return { role: 'gate', name: staff.name, email: staff.email };
+      } catch (e) {
+        console.error('Failed to get invite info:', e);
       }
       return null;
     },
@@ -361,63 +183,177 @@ export const api = {
 
   // Events
   events: {
-    async list(): Promise<Event[]> {
+    async list(organizerOnly?: boolean): Promise<Event[]> {
       try {
-        const res = await fetch(`${API_BASE}/events/public`, {
+        const role = localStorage.getItem('tiketi_role');
+        const token = localStorage.getItem('token');
+        const isOrganizer = organizerOnly || (Boolean(token) && (role === 'organizer' || role === 'owner' || role === 'planner' || role === 'admin'));
+        const endpoint = isOrganizer ? `${API_BASE}/events` : `${API_BASE}/events/public`;
+
+        const res = await fetch(endpoint, {
           headers: getAuthHeader(),
         });
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.events) && data.events.length > 0) {
-            return data.events;
+          if (Array.isArray(data.events)) {
+            return data.events.map((e: any) => ({
+              id: e.id,
+              ownerId: e.organizer_id || e.planner_id || e.owner_id || '',
+              name: e.name,
+              description: e.description || '',
+              venue: e.venue,
+              eventDate: e.event_date || e.eventDate || '',
+              timezone: e.timezone || 'Africa/Lagos',
+              salesEndDate: e.sales_end_date || e.salesEndDate || '',
+              capacity: e.capacity || 0,
+              bannerUrl: e.banner_url || e.bannerUrl || '',
+              posterUrl: e.poster_url || e.posterUrl || '',
+              category: e.category || 'Other',
+              status: e.status || 'draft',
+              approval_status: e.approval_status || 'pending',
+              createdAt: e.created_at || e.createdAt || '',
+            }));
           }
         }
       } catch (e) {
-        // Fall back to local
+        console.error('api.events.list failed:', e);
       }
-      return getStoredEvents();
+      return [];
     },
+
     async get(id: string): Promise<Event | undefined> {
       try {
-        const res = await fetch(`${API_BASE}/events/${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.event) return data.event;
-        }
-      } catch (e) {}
-      return getStoredEvents().find(e => e.id === id);
-    },
-    async create(eventData: Partial<Event>): Promise<Event> {
-      try {
-        const res = await fetch(`${API_BASE}/events`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify(eventData),
+        const res = await fetch(`${API_BASE}/events/${encodeURIComponent(id)}`, {
+          headers: getAuthHeader(),
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.event) return data.event;
+          if (data.event) {
+            const e = data.event;
+            return {
+              id: e.id,
+              ownerId: e.organizer_id || e.planner_id || e.owner_id || '',
+              name: e.name,
+              description: e.description || '',
+              venue: e.venue,
+              eventDate: e.event_date || e.eventDate || '',
+              timezone: e.timezone || 'Africa/Lagos',
+              salesEndDate: e.sales_end_date || e.salesEndDate || '',
+              capacity: e.capacity || 0,
+              bannerUrl: e.banner_url || e.bannerUrl || '',
+              posterUrl: e.poster_url || e.posterUrl || '',
+              category: e.category || 'Other',
+              status: e.status || 'draft',
+              approval_status: e.approval_status || 'pending',
+              createdAt: e.created_at || e.createdAt || '',
+            };
+          }
         }
-      } catch (e) {}
-      
-      const newEvent: Event = {
-        id: 'evt_' + Date.now(),
-        ownerId: 'owner_1',
-        name: eventData.name || 'New Event',
-        description: eventData.description || '',
-        venue: eventData.venue || 'Lagos',
-        eventDate: eventData.eventDate || new Date().toISOString(),
-        timezone: 'Africa/Lagos',
-        salesEndDate: eventData.salesEndDate || new Date().toISOString(),
-        capacity: eventData.capacity || 500,
-        bannerUrl: eventData.bannerUrl || '',
-        posterUrl: eventData.posterUrl || '',
-        status: 'active',
-        createdAt: new Date().toISOString().split('T')[0],
+      } catch (e) {
+        console.error('api.events.get failed:', e);
+      }
+      return undefined;
+    },
+
+    async create(eventData: Partial<Event> & { event_date?: string; sales_end_date?: string; banner_url?: string; poster_url?: string }): Promise<Event> {
+      const payload = {
+        name: eventData.name,
+        description: eventData.description,
+        venue: eventData.venue,
+        event_date: eventData.eventDate || eventData.event_date,
+        sales_end_date: eventData.salesEndDate || eventData.sales_end_date,
+        capacity: eventData.capacity,
+        timezone: eventData.timezone || 'Africa/Lagos',
+        banner_url: eventData.bannerUrl || eventData.banner_url || null,
+        poster_url: eventData.posterUrl || eventData.poster_url || null,
+        category: eventData.category || 'Other',
       };
-      const events = [newEvent, ...getStoredEvents()];
-      saveStoredEvents(events);
-      return newEvent;
+
+      const res = await fetch(`${API_BASE}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create event');
+      }
+
+      const data = await res.json();
+      const e = data.event || data;
+      return {
+        id: e.id,
+        ownerId: e.organizer_id || e.planner_id || e.owner_id || '',
+        name: e.name,
+        description: e.description || '',
+        venue: e.venue,
+        eventDate: e.event_date || e.eventDate || '',
+        timezone: e.timezone || 'Africa/Lagos',
+        salesEndDate: e.sales_end_date || e.salesEndDate || '',
+        capacity: e.capacity || 0,
+        bannerUrl: e.banner_url || e.bannerUrl || '',
+        posterUrl: e.poster_url || e.posterUrl || '',
+        category: e.category || 'Other',
+        status: e.status || 'draft',
+        approval_status: e.approval_status || 'pending',
+        createdAt: e.created_at || e.createdAt || '',
+      };
+    },
+
+    async update(id: string, updates: Partial<Event> & { event_date?: string; sales_end_date?: string; banner_url?: string; poster_url?: string }): Promise<Event> {
+      const payload: any = { ...updates };
+      if (updates.eventDate) payload.event_date = updates.eventDate;
+      if (updates.salesEndDate) payload.sales_end_date = updates.salesEndDate;
+      if (updates.bannerUrl) payload.banner_url = updates.bannerUrl;
+      if (updates.posterUrl) payload.poster_url = updates.posterUrl;
+
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update event');
+      }
+
+      const data = await res.json();
+      const e = data.event || data;
+      return {
+        id: e.id,
+        ownerId: e.organizer_id || e.planner_id || e.owner_id || '',
+        name: e.name,
+        description: e.description || '',
+        venue: e.venue,
+        eventDate: e.event_date || e.eventDate || '',
+        timezone: e.timezone || 'Africa/Lagos',
+        salesEndDate: e.sales_end_date || e.salesEndDate || '',
+        capacity: e.capacity || 0,
+        bannerUrl: e.banner_url || e.bannerUrl || '',
+        posterUrl: e.poster_url || e.posterUrl || '',
+        category: e.category || 'Other',
+        status: e.status || 'draft',
+        approval_status: e.approval_status || 'pending',
+        createdAt: e.created_at || e.createdAt || '',
+      };
+    },
+
+    async delete(id: string): Promise<boolean> {
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader(),
+      });
+      return res.ok;
+    },
+
+    async getStats(id: string) {
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(id)}/stats`, {
+        headers: getAuthHeader(),
+      });
+      if (res.ok) return await res.json();
+      return null;
     }
   },
 
@@ -425,16 +361,18 @@ export const api = {
   ticketTypes: {
     async list(eventId: string): Promise<TicketType[]> {
       try {
-        const res = await fetch(`${API_BASE}/events/${eventId}/ticket-types`, { headers: getAuthHeader() });
+        const res = await fetch(`${API_BASE}/events/${encodeURIComponent(eventId)}/ticket-types`, {
+          headers: getAuthHeader(),
+        });
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.ticketTypes) && data.ticketTypes.length > 0) {
+          if (Array.isArray(data.ticketTypes)) {
             return data.ticketTypes.map((t: any) => ({
               id: t.id,
               eventId: t.event_id || eventId,
               name: t.name,
-              price: t.price || 0,
-              genderPricing: t.gender_pricing,
+              price: t.price ?? 0,
+              genderPricing: t.gender_pricing || false,
               malePrice: t.male_price,
               femalePrice: t.female_price,
               quantity: t.quantity,
@@ -443,82 +381,81 @@ export const api = {
               aspectRatio: '3:1',
               sortOrder: t.sort_order || 0,
               archived: t.archived || false,
-              sold: 0,
+              sold: t.sold || 0,
               locked: t.locked || false,
             }));
           }
         }
-      } catch (e) {}
-      return getStoredTicketTypes().filter(t => t.eventId === eventId);
+      } catch (e) {
+        console.error('api.ticketTypes.list failed:', e);
+      }
+      return [];
     },
 
     async create(eventId: string, ticketData: Partial<TicketType> & { gender_pricing?: boolean; male_price?: number; female_price?: number; ticket_image_url?: string }): Promise<TicketType> {
-      try {
-        const res = await fetch(`${API_BASE}/events/${eventId}/ticket-types`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify({
-            name: ticketData.name,
-            gender_pricing: ticketData.genderPricing ?? ticketData.gender_pricing ?? false,
-            price: ticketData.price,
-            male_price: ticketData.malePrice ?? ticketData.male_price,
-            female_price: ticketData.femalePrice ?? ticketData.female_price,
-            quantity: ticketData.quantity,
-            admits: ticketData.admits ?? 1,
-            ticket_image_url: ticketData.imageUrl || ticketData.ticket_image_url || '',
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ticketType) {
-            const tt = data.ticketType;
-            const mapped: TicketType = {
-              id: tt.id,
-              eventId,
-              name: tt.name,
-              price: tt.price || 0,
-              genderPricing: tt.gender_pricing,
-              malePrice: tt.male_price,
-              femalePrice: tt.female_price,
-              quantity: tt.quantity,
-              admits: tt.admits || 1,
-              imageUrl: tt.ticket_image_url || '',
-              aspectRatio: '3:1',
-              sortOrder: 0,
-              archived: false,
-              sold: 0,
-              locked: false,
-            };
-            const current = getStoredTicketTypes();
-            saveStoredTicketTypes([...current, mapped]);
-            mockTicketTypes.push(mapped);
-            return mapped;
-          }
-        }
-      } catch (e) {}
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(eventId)}/ticket-types`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({
+          name: ticketData.name,
+          gender_pricing: ticketData.genderPricing ?? ticketData.gender_pricing ?? false,
+          price: ticketData.price,
+          male_price: ticketData.malePrice ?? ticketData.male_price,
+          female_price: ticketData.femalePrice ?? ticketData.female_price,
+          quantity: ticketData.quantity,
+          admits: ticketData.admits ?? 1,
+          ticket_image_url: ticketData.imageUrl || ticketData.ticket_image_url || null,
+        }),
+      });
 
-      const newTicket: TicketType = {
-        id: `tt_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create ticket type');
+      }
+
+      const data = await res.json();
+      const tt = data.ticketType;
+      return {
+        id: tt.id,
         eventId,
-        name: ticketData.name || 'Regular',
-        price: ticketData.price || 0,
-        genderPricing: ticketData.genderPricing ?? ticketData.gender_pricing ?? false,
-        malePrice: ticketData.malePrice ?? ticketData.male_price,
-        femalePrice: ticketData.femalePrice ?? ticketData.female_price,
-        gender: ticketData.gender,
-        quantity: ticketData.quantity || 100,
-        admits: ticketData.admits || 1,
-        imageUrl: ticketData.imageUrl || ticketData.ticket_image_url || '',
+        name: tt.name,
+        price: tt.price ?? 0,
+        genderPricing: tt.gender_pricing || false,
+        malePrice: tt.male_price,
+        femalePrice: tt.female_price,
+        quantity: tt.quantity,
+        admits: tt.admits || 1,
+        imageUrl: tt.ticket_image_url || '',
         aspectRatio: '3:1',
         sortOrder: 0,
         archived: false,
         sold: 0,
         locked: false,
       };
-      const current = getStoredTicketTypes();
-      saveStoredTicketTypes([...current, newTicket]);
-      mockTicketTypes.push(newTicket);
-      return newTicket;
+    },
+
+    async update(eventId: string, ttId: string, updates: Partial<TicketType>): Promise<TicketType> {
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ttId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update ticket type');
+      }
+
+      const data = await res.json();
+      return data.ticketType;
+    },
+
+    async delete(eventId: string, ttId: string): Promise<boolean> {
+      const res = await fetch(`${API_BASE}/events/${encodeURIComponent(eventId)}/ticket-types/${encodeURIComponent(ttId)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader(),
+      });
+      return res.ok;
     }
   },
 
@@ -526,128 +463,112 @@ export const api = {
   models: {
     async list(eventId?: string): Promise<Model[]> {
       try {
-        const url = eventId ? `${API_BASE}/models?event_id=${eventId}` : `${API_BASE}/models`;
+        const url = eventId ? `${API_BASE}/models?event_id=${encodeURIComponent(eventId)}` : `${API_BASE}/models`;
         const res = await fetch(url, { headers: getAuthHeader() });
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.models) && data.models.length > 0) {
-            return data.models;
+          if (Array.isArray(data.models)) {
+            return data.models.map((m: any) => ({
+              id: m.id,
+              eventId: m.event_id || eventId || '',
+              name: m.name,
+              email: m.email,
+              referralCode: m.referral_code || m.referralCode || '',
+              status: m.status,
+              totalSold: m.total_sold || m.totalSold || 0,
+              revenue: m.revenue || 0,
+              createdAt: m.created_at || m.createdAt || '',
+              inviteToken: m.invite_token,
+            }));
           }
         }
-      } catch (e) {}
-      const stored = getStoredModels();
-      return eventId ? stored.filter(m => m.eventId === eventId) : stored;
+      } catch (e) {
+        console.error('api.models.list failed:', e);
+      }
+      return [];
     },
 
     async getByRef(code: string): Promise<{ model?: Model; error?: string; inactive?: boolean }> {
       try {
-        const res = await fetch(`${API_BASE}/models/ref/${code}`);
+        const res = await fetch(`${API_BASE}/models/ref/${encodeURIComponent(code)}`);
         const data = await res.json();
         if (res.ok && data.model) {
-          return { model: data.model };
+          const m = data.model;
+          return {
+            model: {
+              id: m.id,
+              eventId: m.event_id,
+              name: m.name,
+              email: m.email,
+              referralCode: m.referral_code,
+              status: m.status,
+              totalSold: m.total_sold || 0,
+              revenue: m.revenue || 0,
+              createdAt: m.created_at,
+            }
+          };
         }
         if (res.status === 403) {
           return { error: data.error || 'Referral link is inactive, suspended, or terminated.', inactive: true };
         }
         return { error: data.error || 'Invalid referral code.' };
-      } catch (e) {
-        // Local lookup fallback
-        const found = getStoredModels().find(m => m.referralCode === code);
-        if (!found) return { error: 'Invalid referral code' };
-        if (found.status !== 'active') {
-          return {
-            error: `This referral link is ${found.status}. Purchases cannot be made through this referral code.`,
-            inactive: true,
-            model: found
-          };
-        }
-        return { model: found };
+      } catch (e: any) {
+        return { error: e.message || 'Could not verify referral code.' };
       }
     },
 
     async invite(modelData: { event_id: string; name: string; email: string }): Promise<Model & { inviteToken?: string; inviteUrl?: string }> {
-      try {
-        const res = await fetch(`${API_BASE}/models/invite`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify(modelData),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.model) {
-            const token = data.invite_token || data.model.invite_token;
-            return {
-              ...data.model,
-              inviteToken: token,
-              inviteUrl: data.invite_url || `${window.location.origin}/invite?token=${token}`
-            };
-          }
-        }
-      } catch (e) {}
+      const res = await fetch(`${API_BASE}/models/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(modelData),
+      });
 
-      const chars = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
-      let ref = 'TKT-';
-      for (let i = 0; i < 4; i++) ref += chars[Math.floor(Math.random() * chars.length)];
-      const inviteToken = 'inv_mod_' + Math.random().toString(36).substring(2, 12);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to invite model');
+      }
 
-      const newModel: Model = {
-        id: 'mod_' + Date.now(),
-        eventId: modelData.event_id || 'evt_1',
-        name: modelData.name,
-        email: modelData.email,
-        referralCode: ref,
-        status: 'invited',
+      const data = await res.json();
+      const m = data.model;
+      const token = data.invite_token || m.invite_token;
+      return {
+        id: m.id,
+        eventId: m.event_id,
+        name: m.name,
+        email: m.email,
+        referralCode: m.referral_code,
+        status: m.status,
         totalSold: 0,
         revenue: 0,
-        createdAt: new Date().toISOString().split('T')[0],
-        inviteToken,
-      };
-      const list = [newModel, ...getStoredModels()];
-      saveStoredModels(list);
-      return {
-        ...newModel,
-        inviteToken,
-        inviteUrl: `${window.location.origin}/invite?token=${inviteToken}`
+        createdAt: m.created_at,
+        inviteToken: token,
+        inviteUrl: data.invite_url || `${window.location.origin}/invite?token=${token}`
       };
     },
 
     async update(id: string, updates: { name?: string; status?: Model['status'] }): Promise<Model> {
-      try {
-        const res = await fetch(`${API_BASE}/models/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify(updates),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.model) {
-            // Also sync local storage
-            const list = getStoredModels().map(m => m.id === id ? { ...m, ...updates } : m);
-            saveStoredModels(list);
-            return data.model;
-          }
-        }
-      } catch (e) {}
+      const res = await fetch(`${API_BASE}/models/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(updates),
+      });
 
-      const list = getStoredModels().map(m => m.id === id ? { ...m, ...updates } : m);
-      saveStoredModels(list);
-      const updated = list.find(m => m.id === id)!;
-      return updated;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update model');
+      }
+
+      const data = await res.json();
+      return data.model;
     },
 
     async remove(id: string): Promise<boolean> {
-      try {
-        const res = await fetch(`${API_BASE}/models/${id}`, {
-          method: 'DELETE',
-          headers: getAuthHeader(),
-        });
-        if (res.ok) return true;
-      } catch (e) {}
-
-      // Keep record intact, update status to removed or terminated
-      const list = getStoredModels().map(m => m.id === id ? { ...m, status: 'terminated' as const } : m);
-      saveStoredModels(list);
-      return true;
+      const res = await fetch(`${API_BASE}/models/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader(),
+      });
+      return res.ok;
     }
   },
 
@@ -658,89 +579,77 @@ export const api = {
         const res = await fetch(`${API_BASE}/staff`, { headers: getAuthHeader() });
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.staff) && data.staff.length > 0) {
-            return data.staff;
+          if (Array.isArray(data.staff)) {
+            return data.staff.map((s: any) => ({
+              id: s.id,
+              ownerId: s.organizer_id || '',
+              name: s.name,
+              email: s.email,
+              assignedEvents: s.event_id ? [s.event_id] : (s.assigned_events || []),
+              status: s.status,
+              lastActivity: s.last_activity,
+              createdAt: s.created_at,
+              inviteToken: s.invite_token,
+            }));
           }
         }
-      } catch (e) {}
-      return getStoredStaff();
+      } catch (e) {
+        console.error('api.staff.list failed:', e);
+      }
+      return [];
     },
 
     async add(staffData: { event_id: string; name: string; email: string }): Promise<GateStaff & { inviteToken?: string; inviteUrl?: string }> {
-      try {
-        const res = await fetch(`${API_BASE}/staff`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify(staffData),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.staff) {
-            const token = data.invite_token || data.staff.invite_token;
-            return {
-              ...data.staff,
-              inviteToken: token,
-              inviteUrl: data.invite_url || `${window.location.origin}/invite?token=${token}`
-            };
-          }
-        }
-      } catch (e) {}
+      const res = await fetch(`${API_BASE}/staff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(staffData),
+      });
 
-      const inviteToken = 'inv_gate_' + Math.random().toString(36).substring(2, 12);
-      const newStaff: GateStaff = {
-        id: 'staff_' + Date.now(),
-        ownerId: 'owner_1',
-        name: staffData.name,
-        email: staffData.email,
-        assignedEvents: [staffData.event_id || 'evt_1'],
-        status: 'invited',
-        lastActivity: null,
-        createdAt: new Date().toISOString().split('T')[0],
-        inviteToken,
-      };
-      const list = [newStaff, ...getStoredStaff()];
-      saveStoredStaff(list);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add staff');
+      }
+
+      const data = await res.json();
+      const s = data.staff;
+      const token = data.invite_token || s.invite_token;
       return {
-        ...newStaff,
-        inviteToken,
-        inviteUrl: `${window.location.origin}/invite?token=${inviteToken}`
+        id: s.id,
+        ownerId: s.organizer_id || '',
+        name: s.name,
+        email: s.email,
+        assignedEvents: [s.event_id],
+        status: s.status,
+        lastActivity: s.last_activity,
+        createdAt: s.created_at,
+        inviteToken: token,
+        inviteUrl: data.invite_url || `${window.location.origin}/invite?token=${token}`
       };
     },
 
     async update(id: string, updates: { name?: string; status?: GateStaff['status'] }): Promise<GateStaff> {
-      try {
-        const res = await fetch(`${API_BASE}/staff/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify(updates),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.staff) {
-            const list = getStoredStaff().map(s => s.id === id ? { ...s, ...updates } : s);
-            saveStoredStaff(list);
-            return data.staff;
-          }
-        }
-      } catch (e) {}
+      const res = await fetch(`${API_BASE}/staff/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(updates),
+      });
 
-      const list = getStoredStaff().map(s => s.id === id ? { ...s, ...updates } : s);
-      saveStoredStaff(list);
-      return list.find(s => s.id === id)!;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update staff');
+      }
+
+      const data = await res.json();
+      return data.staff;
     },
 
     async revoke(id: string): Promise<boolean> {
-      try {
-        const res = await fetch(`${API_BASE}/staff/${id}/revoke`, {
-          method: 'PUT',
-          headers: getAuthHeader(),
-        });
-        if (res.ok) return true;
-      } catch (e) {}
-
-      const list = getStoredStaff().map(s => s.id === id ? { ...s, status: 'revoked' as const } : s);
-      saveStoredStaff(list);
-      return true;
+      const res = await fetch(`${API_BASE}/staff/${encodeURIComponent(id)}/revoke`, {
+        method: 'PUT',
+        headers: getAuthHeader(),
+      });
+      return res.ok;
     }
   },
 
@@ -754,62 +663,36 @@ export const api = {
       buyer_phone: string;
       items: { ticket_type_id: string; quantity: number }[];
     }) {
-      // Validate model status if provided
-      if (orderData.model_id) {
-        const models = getStoredModels();
-        const model = models.find(m => m.id === orderData.model_id);
-        if (model && model.status !== 'active') {
-          throw new Error(`This model referral link is ${model.status}. Purchases cannot be made through this link.`);
-        }
-      }
+      const res = await fetch(`${API_BASE}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderData),
+      });
 
-      try {
-        const res = await fetch(`${API_BASE}/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderData),
-        });
-        if (res.ok) {
-          return await res.json();
-        }
+      if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        if (err.error) throw new Error(err.error);
-      } catch (e: any) {
-        if (e.message && e.message.includes('model')) throw e;
+        throw new Error(err.error || 'Failed to create order');
       }
 
-      // Offline / fallback order generator
-      const ref = 'TKT-ORD-' + Math.random().toString(36).substring(2, 10).toUpperCase();
-      return {
-        order: {
-          reference: ref,
-          accountNumber: '7294018563',
-          bankName: 'Providus Bank',
-          accountName: 'TiKeTi Events Ltd',
-        }
-      };
+      return await res.json();
     },
 
     async getStatus(reference: string) {
-      try {
-        const res = await fetch(`${API_BASE}/orders/${reference}/status`);
-        if (res.ok) return await res.json();
-      } catch (e) {}
-      return { status: 'paid', paid: true, expired: false };
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(reference)}/status`);
+      if (res.ok) return await res.json();
+      return { status: 'unknown' };
     },
 
     async verifyPayment(reference: string) {
-      try {
-        const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(reference)}/verify-payment`, {
-          method: 'POST',
-        });
-        if (res.ok) return await res.json();
-      } catch (e) {}
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(reference)}/verify-payment`, {
+        method: 'POST',
+      });
+      if (res.ok) return await res.json();
       return null;
     },
 
     async getOrderTickets(reference: string, email: string): Promise<{ order: any; tickets: any[] } | null> {
-      if (!email.trim()) return null; // email is required
+      if (!email.trim()) return null;
 
       try {
         const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(reference)}/tickets`, {
@@ -821,119 +704,101 @@ export const api = {
           const data = await res.json();
           if (data && data.order) return data;
         }
-        // Non-ok response (404, 429, etc.) — do NOT fall through to local data
-        // so that the security invariants hold even in hybrid-online mode.
-        if (res.status !== 0) return null;
       } catch (e) {
-        // Only fall through to local data when the request itself failed (offline)
+        console.error('api.orders.getOrderTickets failed:', e);
       }
+      return null;
+    },
 
-      // Offline fallback: honour the email check locally too
-      const storedEmail = email.trim().toLowerCase();
-
-      // Fallback 1: Direct localStorage saved order
+    async list(eventId?: string): Promise<Order[]> {
       try {
-        const cached = localStorage.getItem('tikiti_order_' + reference);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && parsed.tickets) {
-            const buyerEmail = (parsed.order?.buyerEmail || parsed.order?.buyer_email || '').toLowerCase();
-            return buyerEmail === storedEmail ? parsed : null;
+        const url = eventId ? `${API_BASE}/orders?event_id=${encodeURIComponent(eventId)}` : `${API_BASE}/orders`;
+        const res = await fetch(url, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.orders)) {
+            return data.orders.map((o: any) => ({
+              id: o.id,
+              reference: o.reference,
+              buyerName: o.buyer_name || o.buyerName,
+              buyerEmail: o.buyer_email || o.buyerEmail,
+              buyerPhone: o.buyer_phone || o.buyerPhone || '',
+              eventId: o.event_id || o.eventId,
+              modelId: o.model_id || o.modelId || '',
+              status: o.status,
+              total: o.total,
+              ticketPrice: o.ticket_price || o.total,
+              serviceFee: o.fees || 0,
+              paymentReference: o.payment_reference || o.paystack_reference || '',
+              createdAt: o.created_at || o.createdAt,
+              expiresAt: o.expires_at || '',
+              lines: o.lines || []
+            }));
           }
         }
-      } catch (e) {}
-
-      // Fallback 2: Check stored orders
-      const stored = getStoredOrders();
-      const match = stored.find(
-        o => o.reference.toUpperCase() === reference.toUpperCase()
-          && (o.buyerEmail || '').toLowerCase() === storedEmail
-      );
-      if (match) {
-        const events = getStoredEvents();
-        const event = events.find(e => e.id === match.eventId) || events[0] || mockEvents[0];
-        const lines = match.lines || [];
-        const tickets = lines.flatMap((l: any, idx: number) => {
-          return Array.from({ length: l.quantity || 1 }, (_, i) => ({
-            id: `tkt_${match.reference}_${idx}_${i}`,
-            orderRef: match.reference,
-            code: generateTicketCode(),
-            type: l.ticketTypeName || 'Pass',
-            admits: l.admits || 1,
-            ticketImageUrl: l.imageUrl || l.ticket_image_url || event?.posterUrl || event?.bannerUrl || '',
-            eventName: event?.name || 'Event',
-            eventVenue: event?.venue || 'Venue',
-            eventDate: event?.eventDate || new Date().toISOString(),
-            buyerName: match.buyerName,
-            buyerEmail: match.buyerEmail,
-            createdAt: match.createdAt || new Date().toISOString()
-          }));
-        });
-        return { order: match, tickets };
+      } catch (e) {
+        console.error('api.orders.list failed:', e);
       }
-
-      // Fallback 3: mockOrders
-      const mockMatch = mockOrders.find(
-        o => o.reference.toUpperCase() === reference.toUpperCase()
-          && (o.buyerEmail || '').toLowerCase() === storedEmail
-      );
-      if (mockMatch) {
-        const event = mockEvents.find(e => e.id === mockMatch.eventId) || mockEvents[0];
-        const tickets = mockMatch.lines.flatMap((l, idx) => {
-          return Array.from({ length: l.quantity }, (_, i) => ({
-            id: `tkt_${mockMatch.reference}_${idx}_${i}`,
-            orderRef: mockMatch.reference,
-            code: generateTicketCode(),
-            type: l.ticketTypeName,
-            admits: 1,
-            ticketImageUrl: event.posterUrl || event.bannerUrl || '',
-            eventName: event.name,
-            eventVenue: event.venue,
-            eventDate: event.eventDate,
-            buyerName: mockMatch.buyerName,
-            buyerEmail: mockMatch.buyerEmail,
-            createdAt: mockMatch.createdAt
-          }));
-        });
-        return { order: mockMatch, tickets };
-      }
-
-      return null;
+      return [];
     }
   },
 
   // Verify
   verify: {
-    async ticket(params: { event_id: string; code?: string; qr_payload?: string; method: 'code' | 'qr'; staff_id?: string }) {
-      // Check if gate staff is suspended/revoked/terminated locally
-      if (params.staff_id) {
-        const staffList = getStoredStaff();
-        const staff = staffList.find(s => s.id === params.staff_id);
-        if (staff && staff.status !== 'active') {
-          return {
-            status: 'denied',
-            error: `Gate staff account is ${staff.status}. Ticket check-in verification is disabled.`
-          };
-        }
-      }
-
+    async ticket(params: { event_id: string; code?: string; qr_payload?: string; method: 'code' | 'qr' }) {
       try {
         const res = await fetch(`${API_BASE}/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
           body: JSON.stringify(params),
         });
-        if (res.ok) return await res.json();
-        const err = await res.json().catch(() => ({}));
-        if (err.error) return { status: 'denied', error: err.error };
-      } catch (e) {}
 
-      // Fallback
-      const normalized = (params.code || '').replace(/[\s-]/g, '').toUpperCase();
-      const match = mockTickets.find(t => t.code.replace(/[\s-]/g, '').toUpperCase() === normalized);
-      if (!match) return { status: 'invalid', message: 'Ticket code not found' };
-      if (match.checkedIn) return { status: 'already_checked_in', message: 'Ticket has already been checked in', ticket: match };
-      return { status: 'valid', message: 'Valid ticket verified', ticket: { ...match, checkedIn: true } };
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          return {
+            status: 'error',
+            error: data.error || `Server returned ${res.status}`,
+          };
+        }
+
+        return data;
+      } catch (e: any) {
+        return {
+          status: 'error',
+          error: e.message || 'Network connection failed while verifying ticket',
+        };
+      }
+    },
+
+    async getStats(eventId: string): Promise<{
+      total_tickets: number;
+      checked_in: number;
+      total_admits: number;
+      checked_in_admits: number;
+      capacity: number;
+      percentage: number;
+    } | null> {
+      try {
+        const res = await fetch(`${API_BASE}/verify/stats/${encodeURIComponent(eventId)}`, {
+          headers: getAuthHeader(),
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.error('api.verify.getStats failed:', e);
+      }
+      return null;
+    },
+
+    async undo(ticketId: string, reason: string) {
+      const res = await fetch(`${API_BASE}/verify/undo/${encodeURIComponent(ticketId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ reason }),
+      });
+      return res.ok;
     }
   },
 
@@ -946,12 +811,14 @@ export const api = {
           const data = await res.json();
           return data.events || [];
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('api.admin.getPendingEvents failed:', e);
+      }
       return [];
     },
 
     async approveEvent(eventId: string) {
-      const res = await fetch(`${API_BASE}/admin/events/${eventId}/approve`, {
+      const res = await fetch(`${API_BASE}/admin/events/${encodeURIComponent(eventId)}/approve`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       });
@@ -963,7 +830,7 @@ export const api = {
     },
 
     async rejectEvent(eventId: string, reason?: string) {
-      const res = await fetch(`${API_BASE}/admin/events/${eventId}/reject`, {
+      const res = await fetch(`${API_BASE}/admin/events/${encodeURIComponent(eventId)}/reject`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ reason }),
@@ -976,7 +843,7 @@ export const api = {
     },
 
     async updateEventBankDetails(eventId: string, bankDetails: { bank_name: string; bank_code: string; account_number: string; account_name: string }) {
-      const res = await fetch(`${API_BASE}/admin/events/${eventId}/bank-details`, {
+      const res = await fetch(`${API_BASE}/admin/events/${encodeURIComponent(eventId)}/bank-details`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify(bankDetails),
@@ -995,7 +862,9 @@ export const api = {
           const data = await res.json();
           return data.settings || {};
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('api.admin.getSettings failed:', e);
+      }
       return { fee_percent: 5.0, fee_bearer: 'organizer' };
     },
 
@@ -1013,44 +882,15 @@ export const api = {
     },
 
     async deactivateOrganizer(plannerId: string) {
-      try {
-        const res = await fetch(`${API_BASE}/admin/owners/${plannerId}/deactivate`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        });
-        if (res.ok) return await res.json();
-      } catch (e) {}
-
-      // Fallback
-      const planners = getStoredPlanners().map(p => {
-        if (p.id === plannerId) {
-          return { ...p, status: 'deactivated' as const };
-        }
-        return p;
+      const res = await fetch(`${API_BASE}/admin/owners/${encodeURIComponent(plannerId)}/deactivate`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       });
-      saveStoredPlanners(planners);
-
-      // Close associated event
-      const target = getStoredPlanners().find(p => p.id === plannerId);
-      if (target?.eventId) {
-        const events = getStoredEvents().map(e => e.id === target.eventId ? { ...e, status: 'ended' as const } : e);
-        saveStoredEvents(events);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to deactivate organizer');
       }
-
-      // If active user is this planner, log them out
-      const curUser = localStorage.getItem('tiketi_user');
-      if (curUser) {
-        try {
-          const parsed = JSON.parse(curUser);
-          if (parsed.id === plannerId) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('tiketi_user');
-            localStorage.removeItem('tiketi_role');
-          }
-        } catch (e) {}
-      }
-
-      return { success: true };
+      return await res.json();
     },
 
     async deactivatePlanner(plannerId: string) {
