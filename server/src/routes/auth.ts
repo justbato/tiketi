@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import type { AppEnv, JwtPayload } from '../index.js';
 import { signToken } from '../utils/jwt.js';
-import { requireAuth, loginRateLimit, resetLoginRateLimit } from '../middleware/auth.js';
+import { requireAuth, loginRateLimit, resetLoginRateLimit, signupRateLimit, confirmInviteRateLimit } from '../middleware/auth.js';
 import { sanitizeString } from '../middleware/validation.js';
 import { supabase } from '../index.js';
 import { listBanks, resolveAccountName } from '../services/paystack.js';
@@ -59,7 +59,8 @@ const organizerRegisterSchema = z.object({
 const setPasswordSchema = z.object({
   token: z.string().uuid(),
   password: z.string().min(8).max(128),
-  role: z.enum(['model', 'gate'])
+  role: z.enum(['model', 'gate']),
+  email_confirm: z.string().email().optional()
 });
 
 const adminLoginDedicatedSchema = z.object({
@@ -536,11 +537,11 @@ async function handleOrganizerRegister(c: any) {
   }, 201);
 }
 
-authRoutes.post('/register/organizer', handleOrganizerRegister);
-authRoutes.post('/register/planner', handleOrganizerRegister);
+authRoutes.post('/register/organizer', signupRateLimit, handleOrganizerRegister);
+authRoutes.post('/register/planner', signupRateLimit, handleOrganizerRegister);
 
 // ── Confirm Invite & Set Password ──
-authRoutes.post('/confirm-invite', async (c) => {
+authRoutes.post('/confirm-invite', confirmInviteRateLimit, async (c) => {
   let body: z.infer<typeof setPasswordSchema>;
   
   try {
@@ -563,6 +564,15 @@ authRoutes.post('/confirm-invite', async (c) => {
 
   if (record.invite_confirmed_at) {
     return c.json({ error: 'Invite already confirmed' }, 400);
+  }
+
+  if (record.invite_expires_at && new Date(record.invite_expires_at) < new Date()) {
+    return c.json({ error: 'This invite link has expired. Please ask the organizer to send a new invite.' }, 410);
+  }
+
+  // Verify the submitted email matches the invite record (extra guard on top of frontend check)
+  if (body.email_confirm && body.email_confirm.toLowerCase() !== record.email.toLowerCase()) {
+    return c.json({ error: 'Email address does not match the invite.' }, 400);
   }
 
   const passwordHash = await bcrypt.hash(body.password, 12);
@@ -609,7 +619,7 @@ authRoutes.get('/invite/:token', async (c) => {
 
   const { data: model } = await supabase
     .from('models')
-    .select('id, name, email, invite_confirmed_at, event_id')
+    .select('id, name, email, invite_confirmed_at, invite_expires_at, event_id')
     .eq('invite_token', token)
     .single();
 
@@ -617,18 +627,24 @@ authRoutes.get('/invite/:token', async (c) => {
     if (model.invite_confirmed_at) {
       return c.json({ error: 'Invite already confirmed' }, 400);
     }
+    if (model.invite_expires_at && new Date(model.invite_expires_at) < new Date()) {
+      return c.json({ error: 'This invite link has expired. Please ask the organizer to send a new invite.' }, 410);
+    }
     return c.json({ role: 'model', name: model.name, email: model.email });
   }
 
   const { data: staff } = await supabase
     .from('gate_staff')
-    .select('id, name, email, invite_confirmed_at, event_id')
+    .select('id, name, email, invite_confirmed_at, invite_expires_at, event_id')
     .eq('invite_token', token)
     .single();
 
   if (staff) {
     if (staff.invite_confirmed_at) {
       return c.json({ error: 'Invite already confirmed' }, 400);
+    }
+    if (staff.invite_expires_at && new Date(staff.invite_expires_at) < new Date()) {
+      return c.json({ error: 'This invite link has expired. Please ask the organizer to send a new invite.' }, 410);
     }
     return c.json({ role: 'gate', name: staff.name, email: staff.email });
   }

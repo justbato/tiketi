@@ -127,6 +127,11 @@ function GlobalFloatingNav() {
     );
   }
 
+  // Do not show global floating nav on /register because it has its own fixed action bar
+  if (currentPath === '/register') {
+    return null;
+  }
+
   const isOwner = currentPath.startsWith('/owner');
   const isAdmin = currentPath.startsWith('/admin');
   const navVisibilityClass = (isScrollingDown || isInputFocused) ? 'nav-hidden' : '';
@@ -1943,6 +1948,42 @@ function OwnerModels() {
                   >
                     <Trash2 size={10} /> Terminate
                   </button>
+                  {m.status === 'invited' && !m.inviteConfirmedAt && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={async () => {
+                        try {
+                          const result = await api.models.regenerateInvite(m.id);
+                          await navigator.clipboard.writeText(result.invite_url);
+                          showToast('New invite link copied to clipboard!', 'success');
+                          refresh();
+                        } catch (err: any) {
+                          showToast(err.message || 'Failed to regenerate invite', 'error');
+                        }
+                      }}
+                    >
+                      Resend Invite
+                    </Button>
+                  )}
+                  {m.status === 'invited' && !m.inviteConfirmedAt && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={async () => {
+                        if (!confirm('Revoke this pending invite?')) return;
+                        try {
+                          await api.models.revokeInvite(m.id);
+                          showToast('Invite revoked', 'success');
+                          refresh();
+                        } catch (err: any) {
+                          showToast(err.message || 'Failed to revoke invite', 'error');
+                        }
+                      }}
+                    >
+                      Revoke Invite
+                    </Button>
+                  )}
                 </div>
               )}
               {m.status === 'terminated' && (
@@ -2059,6 +2100,42 @@ function OwnerStaff() {
                         </button>
                       </>
                     )}
+                    {s.status === 'invited' && !s.inviteConfirmedAt && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              const result = await api.staff.regenerateInvite(s.id);
+                              await navigator.clipboard.writeText(result.invite_url);
+                              showToast('New invite link copied to clipboard!', 'success');
+                              refresh();
+                            } catch (err: any) {
+                              showToast(err.message || 'Failed to regenerate invite', 'error');
+                            }
+                          }}
+                        >
+                          Resend Invite
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={async () => {
+                            if (!confirm(`Revoke pending invite for ${s.name}?`)) return;
+                            try {
+                              await api.staff.revoke(s.id);
+                              showToast('Invite revoked', 'success');
+                              refresh();
+                            } catch (err: any) {
+                              showToast(err.message || 'Failed to revoke invite', 'error');
+                            }
+                          }}
+                        >
+                          Revoke Invite
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -2097,6 +2174,24 @@ function OwnerStaff() {
                 )}
                 <button onClick={() => quickAction(s, 'revoked')} className="text-xs px-2 py-1 rounded-md font-medium" style={{ background: 'rgba(239,68,68,0.1)', color: '#dc2626' }}>Revoke</button>
                 <button onClick={() => { if (confirm(`Terminate ${s.name}?`)) quickAction(s, 'terminated'); }} className="text-xs px-2 py-1 rounded-md font-medium" style={{ background: 'rgba(239,68,68,0.1)', color: '#dc2626' }}>Terminate</button>
+                {s.status === 'invited' && !s.inviteConfirmedAt && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      try {
+                        const result = await api.staff.regenerateInvite(s.id);
+                        await navigator.clipboard.writeText(result.invite_url);
+                        showToast('New invite link copied to clipboard!', 'success');
+                        refresh();
+                      } catch (err: any) {
+                        showToast(err.message || 'Failed to regenerate invite', 'error');
+                      }
+                    }}
+                  >
+                    Resend Invite
+                  </Button>
+                )}
               </div>
             )}
           </div>

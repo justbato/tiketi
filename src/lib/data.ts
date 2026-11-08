@@ -59,6 +59,7 @@ export interface Model {
   revenue: number;
   createdAt: string;
   inviteToken?: string;
+  inviteConfirmedAt?: string | null;
 }
 
 export interface Order {
@@ -114,6 +115,7 @@ export interface GateStaff {
   lastActivity: string | null;
   createdAt: string;
   inviteToken?: string;
+  inviteConfirmedAt?: string | null;
 }
 
 export interface Payout {

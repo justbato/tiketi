@@ -133,6 +133,67 @@ export function resetLoginRateLimit(ip: string) {
 }
 
 /**
+ * Rate limit for organizer registration — 4 attempts per IP per hour
+ */
+const signupAttempts = new Map<string, { count: number; resetAt: number }>();
+
+export const signupRateLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
+  const now = Date.now();
+  const WINDOW = 60 * 60 * 1000; // 1 hour
+  const MAX = 4;
+
+  let entry = signupAttempts.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + WINDOW };
+  }
+  entry.count++;
+  signupAttempts.set(ip, entry);
+
+  if (entry.count > MAX) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    c.header('Retry-After', String(retryAfter));
+    return c.json({
+      error: 'Too many sign-up attempts. Please try again later.',
+      retry_after: retryAfter
+    }, 429);
+  }
+
+  return await next();
+};
+
+/**
+ * Rate limit for invite confirmation — 10 attempts per 15 minutes per IP
+ * Prevents brute-force token guessing
+ */
+const confirmInviteAttempts = new Map<string, { count: number; resetAt: number }>();
+
+export const confirmInviteRateLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
+  const now = Date.now();
+  const WINDOW = 15 * 60 * 1000; // 15 minutes
+  const MAX = 10;
+
+  let entry = confirmInviteAttempts.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + WINDOW };
+  }
+  entry.count++;
+  confirmInviteAttempts.set(ip, entry);
+
+  if (entry.count > MAX) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    c.header('Retry-After', String(retryAfter));
+    return c.json({
+      error: 'Too many attempts. Please try again later.',
+      retry_after: retryAfter
+    }, 429);
+  }
+
+  return await next();
+};
+
+/**
  * Verify event ownership helper
  */
 export async function verifyEventOwnership(

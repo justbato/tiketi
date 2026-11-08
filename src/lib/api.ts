@@ -116,12 +116,12 @@ export const api = {
       }
     },
 
-    async confirmInvite(token: string, password: string, role: 'model' | 'gate') {
+    async confirmInvite(token: string, password: string, role: 'model' | 'gate', emailConfirm?: string) {
       try {
         const res = await fetch(`${API_BASE}/auth/confirm-invite`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, password, role }),
+          body: JSON.stringify({ token, password, role, email_confirm: emailConfirm }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -479,6 +479,7 @@ export const api = {
               revenue: m.revenue || 0,
               createdAt: m.created_at || m.createdAt || '',
               inviteToken: m.invite_token,
+              inviteConfirmedAt: m.invite_confirmed_at || null,
             }));
           }
         }
@@ -569,7 +570,27 @@ export const api = {
         headers: getAuthHeader(),
       });
       return res.ok;
-    }
+    },
+
+    async regenerateInvite(id: string): Promise<{ invite_token: string; invite_url: string }> {
+      const res = await fetch(`${API_BASE}/models/${encodeURIComponent(id)}/regenerate-invite`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to regenerate invite');
+      return data;
+    },
+
+    async revokeInvite(id: string): Promise<boolean> {
+      const res = await fetch(`${API_BASE}/models/${encodeURIComponent(id)}/revoke-invite`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to revoke invite');
+      return true;
+    },
   },
 
   // Gate Staff
@@ -590,6 +611,7 @@ export const api = {
               lastActivity: s.last_activity,
               createdAt: s.created_at,
               inviteToken: s.invite_token,
+              inviteConfirmedAt: s.invite_confirmed_at || null,
             }));
           }
         }
@@ -650,7 +672,17 @@ export const api = {
         headers: getAuthHeader(),
       });
       return res.ok;
-    }
+    },
+
+    async regenerateInvite(id: string): Promise<{ invite_token: string; invite_url: string }> {
+      const res = await fetch(`${API_BASE}/staff/${encodeURIComponent(id)}/regenerate-invite`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to regenerate invite');
+      return data;
+    },
   },
 
   // Orders

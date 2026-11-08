@@ -75,6 +75,7 @@ staffRoutes.post('/', async (c) => {
   }
 
   const inviteToken = crypto.randomUUID();
+  const inviteExpiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(); // 3 hours
 
   const { data: staffUser, error } = await supabase
     .from('gate_staff')
@@ -83,6 +84,7 @@ staffRoutes.post('/', async (c) => {
       name: body.name,
       email: body.email.toLowerCase(),
       invite_token: inviteToken,
+      invite_expires_at: inviteExpiresAt,
       status: 'invited',
       tickets_verified: 0
     })
@@ -246,4 +248,47 @@ staffRoutes.put('/:id/revoke', async (c) => {
   });
 
   return c.json({ success: true });
+});
+
+// Regenerate invite for a pending gate staff member
+staffRoutes.post('/:id/regenerate-invite', requireAuth, async (c) => {
+  const user = c.get('user') as JwtPayload;
+  const { id } = c.req.param();
+
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
+    return c.json({ error: 'Access denied' }, 403);
+  }
+
+  const { data: staff } = await supabase
+    .from('gate_staff')
+    .select('id, email, name, status, invite_confirmed_at, event:events(organizer_id, planner_id, owner_id)')
+    .eq('id', id)
+    .single();
+
+  if (!staff) return c.json({ error: 'Staff not found' }, 404);
+
+  const ev = (staff as any).event;
+  const canManage = user.role === 'admin' || (ev && (
+    ev.organizer_id === user.id || ev.planner_id === user.id || ev.owner_id === user.id
+  ));
+  if (!canManage) return c.json({ error: 'Access denied' }, 403);
+
+  if (staff.invite_confirmed_at) {
+    return c.json({ error: 'Invite already confirmed — cannot regenerate' }, 400);
+  }
+
+  const newToken = crypto.randomUUID();
+  const newExpiry = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+
+  const { error } = await supabase
+    .from('gate_staff')
+    .update({ invite_token: newToken, invite_expires_at: newExpiry, status: 'invited' })
+    .eq('id', id);
+
+  if (error) return c.json({ error: 'Failed to regenerate invite' }, 500);
+
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim();
+  const inviteUrl = `${frontendUrl}/invite?token=${newToken}`;
+
+  return c.json({ invite_token: newToken, invite_url: inviteUrl });
 });

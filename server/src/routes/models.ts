@@ -89,6 +89,7 @@ modelRoutes.post('/invite', requireAuth, async (c) => {
 
   const referralCode = generateReferralCode();
   const inviteToken = crypto.randomUUID();
+  const inviteExpiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(); // 3 hours
 
   const { data: model, error } = await supabase
     .from('models')
@@ -98,6 +99,7 @@ modelRoutes.post('/invite', requireAuth, async (c) => {
       email: body.email.toLowerCase(),
       referral_code: referralCode,
       invite_token: inviteToken,
+      invite_expires_at: inviteExpiresAt,
       status: 'invited'
     })
     .select()
@@ -383,4 +385,84 @@ modelRoutes.get('/:id/dashboard', async (c) => {
     },
     leaderboard: modelSales.slice(0, 10)
   });
+});
+
+// Regenerate invite for a pending model
+modelRoutes.post('/:id/regenerate-invite', requireAuth, async (c) => {
+  const user = c.get('user') as JwtPayload;
+  const { id } = c.req.param();
+
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
+    return c.json({ error: 'Access denied' }, 403);
+  }
+
+  const { data: model } = await supabase
+    .from('models')
+    .select('id, email, name, status, invite_confirmed_at, event_id, event:events(organizer_id, planner_id, owner_id)')
+    .eq('id', id)
+    .single();
+
+  if (!model) return c.json({ error: 'Model not found' }, 404);
+
+  const ev = (model as any).event;
+  const canManage = user.role === 'admin' || (ev && (
+    ev.organizer_id === user.id || ev.planner_id === user.id || ev.owner_id === user.id
+  ));
+  if (!canManage) return c.json({ error: 'Access denied' }, 403);
+
+  if (model.invite_confirmed_at) {
+    return c.json({ error: 'Invite already confirmed — cannot regenerate' }, 400);
+  }
+
+  const newToken = crypto.randomUUID();
+  const newExpiry = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+
+  const { error } = await supabase
+    .from('models')
+    .update({ invite_token: newToken, invite_expires_at: newExpiry, status: 'invited' })
+    .eq('id', id);
+
+  if (error) return c.json({ error: 'Failed to regenerate invite' }, 500);
+
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim();
+  const inviteUrl = `${frontendUrl}/invite?token=${newToken}`;
+
+  return c.json({ invite_token: newToken, invite_url: inviteUrl });
+});
+
+// Revoke pending invite for a model (nulls the token, sets status back to invited so they can be re-invited)
+modelRoutes.post('/:id/revoke-invite', requireAuth, async (c) => {
+  const user = c.get('user') as JwtPayload;
+  const { id } = c.req.param();
+
+  if (user.role !== 'owner' && user.role !== 'planner' && user.role !== 'organizer' && user.role !== 'admin') {
+    return c.json({ error: 'Access denied' }, 403);
+  }
+
+  const { data: model } = await supabase
+    .from('models')
+    .select('id, invite_confirmed_at, event:events(organizer_id, planner_id, owner_id)')
+    .eq('id', id)
+    .single();
+
+  if (!model) return c.json({ error: 'Model not found' }, 404);
+
+  const ev = (model as any).event;
+  const canManage = user.role === 'admin' || (ev && (
+    ev.organizer_id === user.id || ev.planner_id === user.id || ev.owner_id === user.id
+  ));
+  if (!canManage) return c.json({ error: 'Access denied' }, 403);
+
+  if (model.invite_confirmed_at) {
+    return c.json({ error: 'Invite already confirmed — use the status update endpoint to revoke access' }, 400);
+  }
+
+  const { error } = await supabase
+    .from('models')
+    .update({ invite_token: null, invite_expires_at: null, status: 'revoked' })
+    .eq('id', id);
+
+  if (error) return c.json({ error: 'Failed to revoke invite' }, 500);
+
+  return c.json({ success: true });
 });

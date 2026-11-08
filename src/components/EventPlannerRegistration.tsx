@@ -41,12 +41,19 @@ interface TicketTierEntry {
 // =============================================
 // STEP INDICATOR
 // =============================================
-function StepIndicator({ steps, current }: { steps: string[]; current: number }) {
+function StepIndicator({ steps, current, onStepClick }: { steps: string[]; current: number; onStepClick?: (idx: number) => void }) {
   return (
     <div className="flex items-center justify-center gap-0 mb-8">
       {steps.map((step, i) => (
         <div key={i} className="flex items-center">
-          <div className="flex flex-col items-center">
+          <div
+            className={`flex flex-col items-center ${i < current ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+            onClick={() => {
+              if (i < current && onStepClick) {
+                onStepClick(i);
+              }
+            }}
+          >
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
                 i < current
@@ -383,6 +390,7 @@ export function EventOrganizerRegistration() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submittedEventId, setSubmittedEventId] = useState<string | null>(null);
+  const [formError, setFormError] = useState('');
 
   // Step 1: Account Setup
   const [organizerName, setOrganizerName] = useState('');
@@ -489,48 +497,141 @@ export function EventOrganizerRegistration() {
   // ── Validation ──
   const validateStep = (): boolean => {
     if (step === 0) {
-      if (!organizerName.trim()) { showToast('Organizer / Brand name is required', 'error'); return false; }
-      if (!organizerEmail.trim() || !organizerEmail.includes('@')) { showToast('Valid email is required', 'error'); return false; }
-      if (password.length < 8) { showToast('Password must be at least 8 characters', 'error'); return false; }
-      if (password !== confirmPassword) { showToast('Passwords do not match', 'error'); return false; }
+      if (!organizerName.trim()) {
+        const msg = 'Organizer / Brand name is required';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (!organizerEmail.trim() || !organizerEmail.includes('@')) {
+        const msg = 'Valid email is required (must include @)';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (password.length < 8) {
+        const msg = 'Password must be at least 8 characters';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (password !== confirmPassword) {
+        const msg = 'Passwords do not match';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
     }
     if (step === 1) {
-      if (!eventName.trim()) { showToast('Event name is required', 'error'); return false; }
-      if (!eventDescription.trim()) { showToast('Event description is required', 'error'); return false; }
-      if (!venue.trim()) { showToast('Venue is required', 'error'); return false; }
-      if (!eventDate) { showToast('Event date is required', 'error'); return false; }
-      if (!salesEnd) { showToast('Ticket sales closing date is required', 'error'); return false; }
+      if (!eventName.trim()) {
+        const msg = 'Event name is required';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (!eventDescription.trim()) {
+        const msg = 'Event description is required';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (!venue.trim()) {
+        const msg = 'Venue / location is required';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (!eventDate) {
+        const msg = 'Event date and time is required';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (!salesEnd) {
+        const msg = 'Ticket sales closing date is required';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
     }
     if (step === 2) {
       for (const t of tickets) {
         const name = t.name === 'Custom' ? t.customName : t.name;
-        if (!name.trim()) { showToast('Ticket tier name is required', 'error'); return false; }
-        if (t.genderPricing) {
-          if (!t.malePrice || !t.femalePrice) { showToast('Both male and female prices are required', 'error'); return false; }
-        } else {
-          if (!t.price) { showToast('Ticket price is required', 'error'); return false; }
+        if (!name.trim()) {
+          const msg = 'Ticket tier name is required';
+          setFormError(msg);
+          showToast(msg, 'error');
+          return false;
         }
-        if (!t.quantity) { showToast('Ticket quantity is required', 'error'); return false; }
+        if (t.genderPricing) {
+          if (!t.malePrice || !t.femalePrice) {
+            const msg = 'Both male and female prices are required';
+            setFormError(msg);
+            showToast(msg, 'error');
+            return false;
+          }
+        } else {
+          if (!t.price) {
+            const msg = 'Ticket price is required';
+            setFormError(msg);
+            showToast(msg, 'error');
+            return false;
+          }
+        }
+        if (!t.quantity) {
+          const msg = 'Ticket quantity is required';
+          setFormError(msg);
+          showToast(msg, 'error');
+          return false;
+        }
       }
     }
     if (step === 3) {
-      if (!selectedBankCode || !bankName) { showToast('Please select your bank', 'error'); return false; }
-      if (accountNumber.trim().length !== 10) { showToast('Account number must be 10 digits', 'error'); return false; }
-      if (!accountName.trim()) { showToast('Account name must be verified via Paystack', 'error'); return false; }
+      if (!selectedBankCode || !bankName) {
+        const msg = 'Please select your bank';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (accountNumber.trim().length !== 10) {
+        const msg = 'Account number must be 10 digits';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (!accountName.trim()) {
+        const msg = 'Account name must be verified with Paystack';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
     }
+    setFormError('');
     return true;
   };
 
   const handleNext = () => {
-    if (!validateStep()) return;
-    if (step < STEPS.length - 1) setStep(step + 1);
+    if (!validateStep()) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    setFormError('');
+    if (step < STEPS.length - 1) {
+      setStep(step + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handlePrev = () => {
-    if (step > 0) setStep(step - 1);
+    setFormError('');
+    if (step > 0) {
+      setStep(step - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleSubmit = async () => {
+    setFormError('');
     if (!validateStep()) return;
     setLoading(true);
 
@@ -591,7 +692,9 @@ export function EventOrganizerRegistration() {
       setSubmitted(true);
       showToast('Event submitted for approval!', 'success');
     } catch (err: any) {
-      showToast(err.message || 'Registration failed', 'error');
+      const msg = err.message || 'Registration failed';
+      setFormError(msg);
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -705,7 +808,22 @@ export function EventOrganizerRegistration() {
           </p>
         </div>
 
-        <StepIndicator steps={STEPS} current={step} />
+        <StepIndicator
+          steps={STEPS}
+          current={step}
+          onStepClick={(s) => {
+            setFormError('');
+            setStep(s);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
+
+        {formError && (
+          <div className="mb-5 p-3.5 rounded-2xl bg-red-500/10 border border-red-500/25 flex items-start gap-2.5 animate-fade-up">
+            <AlertCircle size={18} className="text-red-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-red-300 font-medium leading-relaxed">{formError}</p>
+          </div>
+        )}
 
         {/* ───────────────── STEP 0: ACCOUNT SETUP ───────────────── */}
         {step === 0 && (
@@ -1054,7 +1172,7 @@ export function EventOrganizerRegistration() {
 
         {/* ───────────────── NAVIGATION BUTTONS ───────────────── */}
         <div
-          className="fixed bottom-0 left-0 right-0 p-4 border-t backdrop-blur-xl z-40"
+          className="fixed bottom-0 left-0 right-0 p-4 border-t backdrop-blur-xl z-50"
           style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)' }}
         >
           <div className="max-w-xl mx-auto flex items-center gap-3">

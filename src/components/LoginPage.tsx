@@ -438,6 +438,7 @@ export function InviteConfirmPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [emailConfirm, setEmailConfirm] = useState('');
 
   // Get token from URL
   const token = new URLSearchParams(window.location.search).get('token') || '';
@@ -462,13 +463,21 @@ export function InviteConfirmPage() {
   }, [token]);
 
   const handleConfirm = async () => {
+    if (!inviteInfo.email) {
+      showToast('Could not load invite details. Please refresh and try again.', 'error');
+      return;
+    }
+    if (emailConfirm.trim().toLowerCase() !== inviteInfo.email.toLowerCase()) {
+      showToast('Email address does not match the invite. Please check and try again.', 'error');
+      return;
+    }
     if (password.length < 8) { showToast('Password must be at least 8 characters', 'error'); return; }
     if (password !== confirmPassword) { showToast('Passwords do not match', 'error'); return; }
     if (!token) { showToast('Invalid invite link', 'error'); return; }
 
     setLoading(true);
     try {
-      await api.auth.confirmInvite(token, password, inviteInfo.role as 'model' | 'gate');
+      await api.auth.confirmInvite(token, password, inviteInfo.role as 'model' | 'gate', emailConfirm.trim());
       showToast('Account activated! Welcome', 'success');
       if (inviteInfo.role === 'model') navigate('/model');
       else navigate('/verify');
@@ -516,6 +525,28 @@ export function InviteConfirmPage() {
               <strong style={{ color: 'var(--accent)' }}>
                 {inviteInfo.role === 'model' ? 'Model Ambassador' : 'Gate Verifier'}
               </strong>
+            </p>
+            {inviteInfo.email && (
+              <p className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Invited email: <strong className="font-mono text-accent">{inviteInfo.email}</strong>
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              Confirm Your Email Address
+            </label>
+            <input
+              type="email"
+              placeholder="Type your invited email to confirm"
+              value={emailConfirm}
+              onChange={(e) => setEmailConfirm(e.target.value)}
+              className="neu-input"
+              autoComplete="email"
+            />
+            <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Type the email address this invite was sent to
             </p>
           </div>
 
