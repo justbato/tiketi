@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Check, MapPin, Building2,
   Upload, ImageIcon, Plus, Trash2, X, User, Mail,
-  Lock, CreditCard, ChevronDown, Info, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2
+  Lock, CreditCard, ChevronDown, Info, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2,
+  GraduationCap, Compass, Search
 } from 'lucide-react';
 import { Ticket as TIcon } from 'lucide-react';
 import { Button, Input, showToast } from './ui';
@@ -12,13 +13,116 @@ import { api } from '../lib/api';
 // =============================================
 // DATA
 // =============================================
+const POPULAR_CAMPUSES = [
+  { short: 'FUTO', full: 'Federal University of Technology, Owerri (FUTO)' },
+  { short: 'UNILAG', full: 'University of Lagos (UNILAG)' },
+  { short: 'UNN', full: 'University of Nigeria, Nsukka (UNN)' },
+  { short: 'UI', full: 'University of Ibadan (UI)' },
+  { short: 'OAU', full: 'Obafemi Awolowo University (OAU)' },
+  { short: 'UNIBEN', full: 'University of Benin (UNIBEN)' },
+  { short: 'IMSU', full: 'Imo State University (IMSU)' },
+  { short: 'FUTA', full: 'Federal University of Technology, Akure (FUTA)' },
+  { short: 'Covenant', full: 'Covenant University' },
+  { short: 'LASU', full: 'Lagos State University (LASU)' },
+  { short: 'UNIPORT', full: 'University of Port Harcourt (UNIPORT)' },
+  { short: 'UNILORIN', full: 'University of Ilorin (UNILORIN)' },
+];
+
+const NIGERIAN_UNIVERSITIES = [
+  'Federal University of Technology, Owerri (FUTO)',
+  'University of Lagos (UNILAG)',
+  'University of Nigeria, Nsukka (UNN)',
+  'University of Ibadan (UI)',
+  'Obafemi Awolowo University (OAU)',
+  'University of Benin (UNIBEN)',
+  'University of Port Harcourt (UNIPORT)',
+  'Imo State University (IMSU)',
+  'Federal University of Technology, Akure (FUTA)',
+  'Federal University of Technology, Minna (FUTMINNA)',
+  'Covenant University',
+  'Babcock University',
+  'Lagos State University (LASU)',
+  'Yaba College of Technology (YABATECH)',
+  'Ahmadu Bello University (ABU)',
+  'University of Ilorin (UNILORIN)',
+  'Nnamdi Azikiwe University (NAU / UNIZIK)',
+  'University of Calabar (UNICAL)',
+  'Rivers State University (RSU)',
+  'Delta State University (DELSU)',
+  'Abia State University (ABSU)',
+  'Enugu State University of Science and Technology (ESUT)',
+  'Chukwuemeka Odumegwu Ojukwu University (COOU)',
+  'Madonna University',
+  'Bowen University',
+  'Afe Babalola University (ABUAD)',
+  'Landmark University',
+  'Redeemer\'s University',
+  'Nile University of Nigeria',
+  'Baze University',
+  'Other',
+];
+
+const NIGERIAN_STATES = [
+  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi',
+  'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta',
+  'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT - Abuja',
+  'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano',
+  'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos',
+  'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun',
+  'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba',
+  'Yobe', 'Zamfara',
+];
+
+const DEFAULT_NIGERIAN_BANKS = [
+  { id: 1, name: 'Access Bank', code: '044' },
+  { id: 2, name: 'Zenith Bank', code: '057' },
+  { id: 3, name: 'Guaranty Trust Bank (GTBank)', code: '058' },
+  { id: 4, name: 'First Bank of Nigeria', code: '011' },
+  { id: 5, name: 'United Bank for Africa (UBA)', code: '033' },
+  { id: 6, name: 'OPay (Paycom)', code: '999992' },
+  { id: 7, name: 'PalmPay', code: '999991' },
+  { id: 8, name: 'Moniepoint MFB', code: '50515' },
+  { id: 9, name: 'Kuda Bank', code: '50211' },
+  { id: 10, name: 'Fidelity Bank', code: '070' },
+  { id: 11, name: 'Stanbic IBTC Bank', code: '221' },
+  { id: 12, name: 'Sterling Bank', code: '232' },
+  { id: 13, name: 'Union Bank of Nigeria', code: '032' },
+  { id: 14, name: 'Polaris Bank', code: '076' },
+  { id: 15, name: 'Wema Bank (ALAT)', code: '035' },
+  { id: 16, name: 'Ecobank Nigeria', code: '050' },
+  { id: 17, name: 'FCMB (First City Monument Bank)', code: '214' },
+  { id: 18, name: 'Keystone Bank', code: '082' },
+  { id: 19, name: 'Heritage Bank', code: '030' },
+  { id: 20, name: 'Jaiz Bank', code: '301' },
+  { id: 21, name: 'Taj Bank', code: '302' },
+  { id: 22, name: 'Unity Bank', code: '215' },
+  { id: 23, name: 'Providus Bank', code: '101' },
+  { id: 24, name: 'VFD Microfinance Bank', code: '566' },
+  { id: 25, name: 'Rubies MFB', code: '125' },
+  { id: 26, name: 'Dot Microfinance Bank', code: '50163' },
+  { id: 27, name: 'Fairmoney Microfinance Bank', code: '51318' },
+];
+
+const POPULAR_BANKS = [
+  { name: 'OPay', code: '999992' },
+  { name: 'PalmPay', code: '999991' },
+  { name: 'Moniepoint', code: '50515' },
+  { name: 'Kuda', code: '50211' },
+  { name: 'GTBank', code: '058' },
+  { name: 'Zenith', code: '057' },
+  { name: 'Access', code: '044' },
+  { name: 'First Bank', code: '011' },
+  { name: 'UBA', code: '033' },
+  { name: 'Wema/ALAT', code: '035' },
+];
+
 const TICKET_TIERS = [
   'VIP', 'Regular', 'Early Bird', 'Table', 'VVIP', 'Gold', 'Silver', 'Bronze', 'Couple'
 ];
 
 const EVENT_CATEGORIES = [
   'Campus Party', 'Club & Nightlife', 'Concert & Music', 'Beach & Pool Party',
-  'Festival', 'Fashion & Runway', 'Rave', 'Conference & Meetup', 'Other'
+  'Festival', 'Fashion & Runway', 'Rave', 'Street Jam', 'Conference & Meetup', 'Other'
 ];
 
 // =============================================
@@ -403,6 +507,11 @@ export function EventOrganizerRegistration() {
   // Step 2: Event Details
   const [eventName, setEventName] = useState('');
   const [eventDescription, setEventDescription] = useState('');
+  const [partyType, setPartyType] = useState<'campus' | 'off_campus'>('campus');
+  const [university, setUniversity] = useState('Federal University of Technology, Owerri (FUTO)');
+  const [universityCustom, setUniversityCustom] = useState('');
+  const [state, setState] = useState('Lagos');
+  const [locationCity, setLocationCity] = useState('');
   const [venue, setVenue] = useState('');
   const [eventCategory, setEventCategory] = useState('Campus Party');
   const [eventDate, setEventDate] = useState('');
@@ -429,9 +538,10 @@ export function EventOrganizerRegistration() {
   }]);
 
   // Step 4: Payout Details
-  const [banks, setBanks] = useState<{ id: number; name: string; code: string }[]>([]);
-  const [selectedBankCode, setSelectedBankCode] = useState('');
-  const [bankName, setBankName] = useState('');
+  const [banks, setBanks] = useState<{ id: number; name: string; code: string }[]>(DEFAULT_NIGERIAN_BANKS);
+  const [selectedBankCode, setSelectedBankCode] = useState('999992'); // default OPay
+  const [bankName, setBankName] = useState('OPay (Paycom)');
+  const [bankSearch, setBankSearch] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
   const [resolvingAccount, setResolvingAccount] = useState(false);
@@ -442,10 +552,15 @@ export function EventOrganizerRegistration() {
     async function loadBanks() {
       try {
         const list = await api.auth.getBanks();
-        setBanks(list);
-        if (list.length > 0 && !selectedBankCode) {
-          setSelectedBankCode(list[0].code);
-          setBankName(list[0].name);
+        if (Array.isArray(list) && list.length > 0) {
+          setBanks(list);
+          const current = list.find((b: any) => b.code === selectedBankCode);
+          if (current) {
+            setBankName(current.name);
+          } else if (!selectedBankCode) {
+            setSelectedBankCode(list[0].code);
+            setBankName(list[0].name);
+          }
         }
       } catch (e) {
         console.error('Failed to load banks:', e);
@@ -459,6 +574,14 @@ export function EventOrganizerRegistration() {
     setSelectedBankCode(code);
     const b = banks.find(x => x.code === code);
     if (b) setBankName(b.name);
+    setAccountName('');
+    setAccountResolveError('');
+  };
+
+  const handleSelectPopularBank = (bank: { name: string; code: string }) => {
+    setSelectedBankCode(bank.code);
+    const match = banks.find(b => b.code === bank.code);
+    setBankName(match ? match.name : bank.name);
     setAccountName('');
     setAccountResolveError('');
   };
@@ -523,6 +646,29 @@ export function EventOrganizerRegistration() {
       }
     }
     if (step === 1) {
+      if (!partyType) {
+        const msg = 'Please choose event type (Campus or Street / City Event)';
+        setFormError(msg);
+        showToast(msg, 'error');
+        return false;
+      }
+      if (partyType === 'campus') {
+        const effUni = university === 'Other' ? universityCustom.trim() : university.trim();
+        if (!effUni) {
+          const msg = 'Please select or enter the university / campus name';
+          setFormError(msg);
+          showToast(msg, 'error');
+          return false;
+        }
+      }
+      if (partyType === 'off_campus') {
+        if (!state.trim()) {
+          const msg = 'Please select a state for your event';
+          setFormError(msg);
+          showToast(msg, 'error');
+          return false;
+        }
+      }
       if (!eventName.trim()) {
         const msg = 'Event name is required';
         setFormError(msg);
@@ -636,6 +782,11 @@ export function EventOrganizerRegistration() {
     setLoading(true);
 
     try {
+      const effectiveUniversity = partyType === 'campus'
+        ? (university === 'Other' ? universityCustom.trim() : university.trim())
+        : null;
+      const effectiveState = partyType === 'off_campus' ? state.trim() : null;
+
       // 1. Register organizer account
       const regResult = await api.auth.registerOrganizer({
         name: organizerName.trim(),
@@ -653,6 +804,10 @@ export function EventOrganizerRegistration() {
         name: eventName.trim(),
         description: eventDescription.trim() || 'Event details coming soon.',
         venue: venue.trim(),
+        party_type: partyType,
+        partyType: partyType,
+        university: effectiveUniversity,
+        state: effectiveState,
         eventDate: eventDate || new Date(Date.now() + 86400000 * 7).toISOString(),
         salesEndDate: salesEnd || new Date(Date.now() + 86400000 * 6).toISOString(),
         capacity: parseInt(capacity) || 500,
@@ -931,6 +1086,204 @@ export function EventOrganizerRegistration() {
               />
             </div>
 
+            {/* Event Environment / Type */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-secondary)' }}>
+                Event Type &amp; Setting *
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Campus Event Card */}
+                <div
+                  onClick={() => {
+                    setPartyType('campus');
+                    if (eventCategory === 'Street / City Fest' || eventCategory === 'Club & Nightlife') {
+                      setEventCategory('Campus Party');
+                    }
+                  }}
+                  className={`p-4 rounded-2xl cursor-pointer border-2 transition-all flex flex-col gap-2 ${
+                    partyType === 'campus'
+                      ? 'border-[#00e5ff] bg-[#00e5ff]/10 shadow-lg'
+                      : 'border-transparent neu-card hover:border-gray-600'
+                  }`}
+                  style={{
+                    borderColor: partyType === 'campus' ? 'var(--accent)' : 'var(--border)',
+                    backgroundColor: partyType === 'campus' ? 'rgba(0, 229, 255, 0.08)' : 'var(--card-bg)'
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{
+                        backgroundColor: partyType === 'campus' ? 'var(--accent)' : 'var(--canvas)',
+                        color: partyType === 'campus' ? '#000' : 'var(--text-primary)'
+                      }}
+                    >
+                      <GraduationCap size={22} />
+                    </div>
+                    {partyType === 'campus' && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#00e5ff] text-black">
+                        Selected
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                      Campus Event
+                    </h3>
+                    <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      University / polytechnic parties, faculty dinners, student raves, or hostel events.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Street / City Event Card */}
+                <div
+                  onClick={() => {
+                    setPartyType('off_campus');
+                    if (eventCategory === 'Campus Party') {
+                      setEventCategory('Club & Nightlife');
+                    }
+                  }}
+                  className={`p-4 rounded-2xl cursor-pointer border-2 transition-all flex flex-col gap-2 ${
+                    partyType === 'off_campus'
+                      ? 'border-[#00e5ff] bg-[#00e5ff]/10 shadow-lg'
+                      : 'border-transparent neu-card hover:border-gray-600'
+                  }`}
+                  style={{
+                    borderColor: partyType === 'off_campus' ? 'var(--accent)' : 'var(--border)',
+                    backgroundColor: partyType === 'off_campus' ? 'rgba(0, 229, 255, 0.08)' : 'var(--card-bg)'
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{
+                        backgroundColor: partyType === 'off_campus' ? 'var(--accent)' : 'var(--canvas)',
+                        color: partyType === 'off_campus' ? '#000' : 'var(--text-primary)'
+                      }}
+                    >
+                      <Compass size={22} />
+                    </div>
+                    {partyType === 'off_campus' && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#00e5ff] text-black">
+                        Selected
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                      Street / City Event
+                    </h3>
+                    <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      Off-campus clubs, city festivals, beach parties, rave concerts, or lounges.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Campus Options */}
+            {partyType === 'campus' && (
+              <div className="space-y-3 p-4 rounded-2xl border" style={{ backgroundColor: 'var(--canvas)', borderColor: 'var(--border)' }}>
+                <div>
+                  <span className="text-[11px] font-semibold block mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                    Popular Campuses:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {POPULAR_CAMPUSES.map((c) => {
+                      const isSelected = university === c.full;
+                      return (
+                        <button
+                          key={c.short}
+                          type="button"
+                          onClick={() => setUniversity(c.full)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                            isSelected
+                              ? 'bg-[#00e5ff] text-black shadow-md scale-105'
+                              : 'neu-button text-[var(--text-secondary)] hover:text-white'
+                          }`}
+                          style={isSelected ? { backgroundColor: 'var(--accent)', color: '#000' } : {}}
+                        >
+                          {c.short}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                    Select University / Institution *
+                  </label>
+                  <select
+                    value={university}
+                    onChange={(e) => setUniversity(e.target.value)}
+                    className="neu-input w-full font-medium"
+                    style={{ backgroundColor: 'var(--card-bg, #1a202c)', color: 'var(--text-primary, #ffffff)' }}
+                  >
+                    {NIGERIAN_UNIVERSITIES.map((u) => (
+                      <option key={u} value={u} style={{ backgroundColor: '#181d28', color: '#ffffff' }}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {university === 'Other' && (
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      Custom University Name *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter institution name"
+                      value={universityCustom}
+                      onChange={(e) => setUniversityCustom(e.target.value)}
+                      className="neu-input w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Off-Campus Options */}
+            {partyType === 'off_campus' && (
+              <div className="space-y-3 p-4 rounded-2xl border" style={{ backgroundColor: 'var(--canvas)', borderColor: 'var(--border)' }}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      State *
+                    </label>
+                    <select
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      className="neu-input w-full font-medium"
+                      style={{ backgroundColor: 'var(--card-bg, #1a202c)', color: 'var(--text-primary, #ffffff)' }}
+                    >
+                      {NIGERIAN_STATES.map((s) => (
+                        <option key={s} value={s} style={{ backgroundColor: '#181d28', color: '#ffffff' }}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      City / Area (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Lekki, Ikeja, Abuja Central"
+                      value={locationCity}
+                      onChange={(e) => setLocationCity(e.target.value)}
+                      className="neu-input w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Event Category *
@@ -939,9 +1292,12 @@ export function EventOrganizerRegistration() {
                 value={eventCategory}
                 onChange={(e) => setEventCategory(e.target.value)}
                 className="neu-input w-full"
+                style={{ backgroundColor: 'var(--card-bg, #1a202c)', color: 'var(--text-primary, #ffffff)' }}
               >
                 {EVENT_CATEGORIES.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+                  <option key={cat} value={cat} style={{ backgroundColor: '#181d28', color: '#ffffff' }}>
+                    {cat}
+                  </option>
                 ))}
               </select>
             </div>
@@ -952,7 +1308,11 @@ export function EventOrganizerRegistration() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. FUTO Hall of Excellence, Owerri / The Palms Mall, Lekki"
+                placeholder={
+                  partyType === 'campus'
+                    ? 'e.g. FUTO Hall of Excellence, Owerri / Unilag Sports Complex'
+                    : 'e.g. Landmark Beach, Victoria Island, Lagos'
+                }
                 value={venue}
                 onChange={(e) => setVenue(e.target.value)}
                 className="neu-input w-full"
@@ -1106,21 +1466,118 @@ export function EventOrganizerRegistration() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+            {/* Bank Selection */}
+            <div className="space-y-3">
+              <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
                 Select Bank *
               </label>
-              <select
-                value={selectedBankCode}
-                onChange={(e) => handleBankChange(e.target.value)}
-                className="neu-input w-full"
-              >
-                {banks.map((b) => (
-                  <option key={b.code} value={b.code}>
-                    {b.name}
+
+              {/* Popular Banks Quick-Picks */}
+              <div>
+                <span className="text-[11px] font-semibold block mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Popular Banks:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {POPULAR_BANKS.map((pb) => {
+                    const isSelected = selectedBankCode === pb.code;
+                    return (
+                      <button
+                        key={pb.code}
+                        type="button"
+                        onClick={() => handleSelectPopularBank(pb)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                          isSelected
+                            ? 'bg-[#00e5ff] text-black shadow-md scale-105'
+                            : 'neu-button text-[var(--text-secondary)] hover:text-white'
+                        }`}
+                        style={isSelected ? { backgroundColor: 'var(--accent)', color: '#000' } : {}}
+                      >
+                        {pb.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Search filter for all Nigerian banks */}
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Filter bank by name (e.g. OPay, GTBank, Access, Zenith)..."
+                  value={bankSearch}
+                  onChange={(e) => setBankSearch(e.target.value)}
+                  className="neu-input w-full pl-9 pr-14 text-xs py-2"
+                />
+                {bankSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setBankSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 hover:text-white"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Styled Select Dropdown */}
+              <div>
+                <select
+                  value={selectedBankCode}
+                  onChange={(e) => handleBankChange(e.target.value)}
+                  className="neu-input w-full font-medium"
+                  style={{
+                    backgroundColor: 'var(--card-bg, #1a202c)',
+                    color: 'var(--text-primary, #ffffff)',
+                  }}
+                >
+                  <option value="" disabled style={{ backgroundColor: '#181d28', color: '#888' }}>
+                    -- Choose your bank ({banks.length} available) --
                   </option>
-                ))}
-              </select>
+                  {(bankSearch.trim()
+                    ? banks.filter(b => b.name.toLowerCase().includes(bankSearch.toLowerCase().trim()))
+                    : banks
+                  ).map((b) => (
+                    <option
+                      key={`${b.code}-${b.name}`}
+                      value={b.code}
+                      style={{
+                        backgroundColor: '#181d28',
+                        color: '#ffffff',
+                        padding: '8px',
+                      }}
+                    >
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selected Bank confirmation badge */}
+              {selectedBankCode && (
+                <div
+                  className="p-3 rounded-xl flex items-center justify-between border"
+                  style={{ backgroundColor: 'var(--canvas)', borderColor: 'var(--border)' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Building2 size={16} style={{ color: 'var(--accent)' }} />
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider block" style={{ color: 'var(--text-muted)' }}>
+                        Selected Bank
+                      </span>
+                      <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {bankName || banks.find(b => b.code === selectedBankCode)?.name || 'Selected'}
+                      </span>
+                    </div>
+                  </div>
+                  <span
+                    className="text-[11px] font-mono px-2 py-0.5 rounded font-semibold"
+                    style={{ backgroundColor: 'rgba(0,229,255,0.1)', color: 'var(--accent)' }}
+                  >
+                    Code: {selectedBankCode}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div>

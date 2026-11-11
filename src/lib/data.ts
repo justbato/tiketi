@@ -22,6 +22,10 @@ export interface Event {
   bannerUrl: string;
   posterUrl: string;
   category?: string;
+  party_type?: 'campus' | 'off_campus';
+  partyType?: 'campus' | 'off_campus';
+  university?: string | null;
+  state?: string | null;
   poster_url?: string | null;
   banner_url?: string | null;
   approval_status?: 'pending' | 'approved' | 'rejected';
