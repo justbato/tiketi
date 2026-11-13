@@ -26,11 +26,21 @@ export interface PaystackBank {
 }
 
 export async function listBanks(): Promise<PaystackBank[]> {
-  const res = await axios.get(`${PAYSTACK_BASE}/bank?currency=NGN&country=nigeria`, {
-    headers: getHeaders(),
-    timeout: 10000,
-  });
-  return res.data.data as PaystackBank[];
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret || secret.includes('your_secret_key') || secret.includes('your-secret-key')) {
+    throw new Error('PAYSTACK_SECRET_KEY is a placeholder or not configured');
+  }
+
+  try {
+    const res = await axios.get(`${PAYSTACK_BASE}/bank?currency=NGN&country=nigeria`, {
+      headers: getHeaders(),
+      timeout: 10000,
+    });
+    return res.data.data as PaystackBank[];
+  } catch (err: any) {
+    const msg = err.response?.data?.message || err.message || 'Failed to list banks';
+    throw new Error(msg);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -40,12 +50,35 @@ export async function resolveAccountName(
   account_number: string,
   bank_code: string
 ): Promise<string> {
-  const res = await axios.get(
-    `${PAYSTACK_BASE}/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`,
-    { headers: getHeaders(), timeout: 10000 }
-  );
-  if (!res.data.status) throw new Error(res.data.message || 'Could not resolve account');
-  return res.data.data.account_name as string;
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret || secret.includes('your_secret_key') || secret.includes('your-secret-key')) {
+    console.warn('[Paystack] PAYSTACK_SECRET_KEY is placeholder or missing in server/.env');
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      return 'TEST ACCOUNT (DEV MOCK)';
+    }
+    throw new Error('Paystack secret key is not configured. Please add PAYSTACK_SECRET_KEY in server/.env');
+  }
+
+  try {
+    const res = await axios.get(
+      `${PAYSTACK_BASE}/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`,
+      { headers: getHeaders(), timeout: 10000 }
+    );
+    if (!res.data.status) throw new Error(res.data.message || 'Could not resolve account');
+    return res.data.data.account_name as string;
+  } catch (err: any) {
+    const apiMsg = err.response?.data?.message;
+    if (apiMsg) {
+      throw new Error(apiMsg);
+    }
+    if (err.response?.status === 401) {
+      throw new Error('Invalid Paystack API key. Please check PAYSTACK_SECRET_KEY in server/.env');
+    }
+    if (err.response?.status === 422) {
+      throw new Error('Could not resolve account name with Paystack. Please check account number and bank.');
+    }
+    throw new Error(err.message || 'Could not resolve account');
+  }
 }
 
 // ─────────────────────────────────────────────

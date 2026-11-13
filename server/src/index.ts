@@ -107,17 +107,23 @@ app.use('*', async (c, next) => {
 
 // CORS
 const rawOrigins = process.env.FRONTEND_URL || 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173';
-const allowedOrigins = rawOrigins.split(',').map((o: string) => o.trim());
+const allowedOrigins = rawOrigins.split(',').map((o: string) => o.trim()).filter(Boolean);
 
 app.use('*', cors({
   origin: (origin) => {
-    if (!origin) return null;
+    if (!origin) return '*';
     if (allowedOrigins.includes(origin)) return origin;
-    if (process.env.NODE_ENV !== 'production') return origin;
-    return null;
+    // Allow any Cloudflare Workers or Pages frontend domains
+    if (origin.endsWith('.workers.dev') || origin.endsWith('.pages.dev')) return origin;
+    // Allow any TiKeTi / doublemanmedia domains
+    if (origin.includes('tiketi') || origin.includes('doublemanmedia')) return origin;
+    // Allow any localhost / 127.0.0.1 port
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+    // Safe fallback: reflect requesting origin
+    return origin;
   },
   credentials: true,
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'Accept'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   maxAge: 86400,
 }));

@@ -544,6 +544,7 @@ export function EventOrganizerRegistration() {
   const [bankSearch, setBankSearch] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
+  const [isManualAccountName, setIsManualAccountName] = useState(false);
   const [resolvingAccount, setResolvingAccount] = useState(false);
   const [accountResolveError, setAccountResolveError] = useState('');
 
@@ -574,7 +575,7 @@ export function EventOrganizerRegistration() {
     setSelectedBankCode(code);
     const b = banks.find(x => x.code === code);
     if (b) setBankName(b.name);
-    setAccountName('');
+    if (!isManualAccountName) setAccountName('');
     setAccountResolveError('');
   };
 
@@ -582,14 +583,14 @@ export function EventOrganizerRegistration() {
     setSelectedBankCode(bank.code);
     const match = banks.find(b => b.code === bank.code);
     setBankName(match ? match.name : bank.name);
-    setAccountName('');
+    if (!isManualAccountName) setAccountName('');
     setAccountResolveError('');
   };
 
   // Auto-resolve account name when 10 digits are typed
   useEffect(() => {
     const cleanNum = accountNumber.trim().replace(/\D/g, '');
-    if (cleanNum.length === 10 && selectedBankCode) {
+    if (cleanNum.length === 10 && selectedBankCode && !isManualAccountName) {
       let isMounted = true;
       setResolvingAccount(true);
       setAccountResolveError('');
@@ -609,11 +610,13 @@ export function EventOrganizerRegistration() {
         });
 
       return () => { isMounted = false; };
-    } else {
-      setAccountName('');
+    } else if (cleanNum.length < 10) {
+      if (!isManualAccountName) {
+        setAccountName('');
+      }
       setAccountResolveError('');
     }
-  }, [accountNumber, selectedBankCode]);
+  }, [accountNumber, selectedBankCode, isManualAccountName]);
 
   const STEPS = ['Account', 'Event Details', 'Tickets', 'Payout'];
 
@@ -746,7 +749,7 @@ export function EventOrganizerRegistration() {
         return false;
       }
       if (!accountName.trim()) {
-        const msg = 'Account name must be verified with Paystack';
+        const msg = 'Account name is required. Please verify with Paystack or enter it manually.';
         setFormError(msg);
         showToast(msg, 'error');
         return false;
@@ -1594,34 +1597,110 @@ export function EventOrganizerRegistration() {
               />
             </div>
 
-            {/* Account Name resolution card */}
-            <div className="p-4 rounded-2xl" style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
-              <span className="text-[10px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-secondary)' }}>
-                Verified Account Name
-              </span>
-              {resolvingAccount ? (
-                <div className="flex items-center gap-2 py-1 text-xs" style={{ color: 'var(--accent)' }}>
-                  <Loader2 size={16} className="animate-spin" />
-                  Verifying account details with Paystack...
-                </div>
-              ) : accountName ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold font-mono" style={{ color: 'var(--text-primary)' }}>
-                    {accountName}
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-green-400">
-                    <CheckCircle2 size={14} /> Verified
-                  </span>
-                </div>
-              ) : accountResolveError ? (
-                <div className="flex items-center gap-1.5 text-xs text-red-400 py-1">
-                  <AlertCircle size={14} />
-                  {accountResolveError}
+            {/* Account Name Section */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+                  Account Name *
+                </label>
+                {accountName && !isManualAccountName && (
+                  <button
+                    type="button"
+                    onClick={() => setIsManualAccountName(true)}
+                    className="text-[11px] hover:underline"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    Edit Name
+                  </button>
+                )}
+              </div>
+
+              {isManualAccountName ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. John Doe / Business Enterprise"
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                    className="neu-input w-full font-medium"
+                  />
+                  <div className="flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Must match the name on your NUBAN bank account</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManualAccountName(false);
+                        const cleanNum = accountNumber.trim().replace(/\D/g, '');
+                        if (cleanNum.length === 10 && selectedBankCode) {
+                          setResolvingAccount(true);
+                          setAccountResolveError('');
+                          api.auth.resolveAccount(cleanNum, selectedBankCode)
+                            .then((name) => {
+                              setAccountName(name);
+                              setResolvingAccount(false);
+                            })
+                            .catch((err) => {
+                              setAccountResolveError(err.message || 'Could not verify account');
+                              setResolvingAccount(false);
+                            });
+                        }
+                      }}
+                      className="hover:underline text-[var(--accent)] font-medium"
+                    >
+                      Re-verify with Paystack
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <span className="text-xs text-gray-500 italic">
-                  Enter 10-digit account number to auto-verify with Paystack
-                </span>
+                <div className="p-4 rounded-2xl" style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)' }}>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Bank Account Holder
+                  </span>
+                  {resolvingAccount ? (
+                    <div className="flex items-center gap-2 py-1 text-xs" style={{ color: 'var(--accent)' }}>
+                      <Loader2 size={16} className="animate-spin" />
+                      Verifying account details with Paystack...
+                    </div>
+                  ) : accountName ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold font-mono" style={{ color: 'var(--text-primary)' }}>
+                        {accountName}
+                      </span>
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-green-400">
+                        <CheckCircle2 size={14} /> Verified
+                      </span>
+                    </div>
+                  ) : accountResolveError ? (
+                    <div className="space-y-2.5 py-1">
+                      <div className="flex items-start gap-1.5 text-xs text-red-400">
+                        <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                        <span className="leading-relaxed">{accountResolveError}</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1 border-t border-red-500/20">
+                        <button
+                          type="button"
+                          onClick={() => setIsManualAccountName(true)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#00e5ff]/10 text-[#00e5ff] border border-[#00e5ff]/30 hover:bg-[#00e5ff]/20 transition-all flex items-center gap-1.5"
+                        >
+                          Enter Account Name Manually
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500 italic">
+                        Enter 10-digit account number to auto-verify
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsManualAccountName(true)}
+                        className="text-[11px] text-gray-400 hover:text-white hover:underline"
+                      >
+                        Enter manually
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
