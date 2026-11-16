@@ -5,7 +5,9 @@ import type { JwtPayload } from '../index.js';
 // JWT UTILITIES (using jose - more secure than jsonwebtoken)
 // =============================================
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'default-secret-change-me-in-production-32chars!');
+function getJwtSecret() {
+  return new TextEncoder().encode(process.env.JWT_SECRET || 'default-secret-change-me-in-production-32chars!');
+}
 const ISSUER = 'tiketi';
 const AUDIENCE = 'tiketi-api';
 const MAX_TOKEN_AGE = '24h'; // 24 hours
@@ -21,7 +23,7 @@ export async function signToken(payload: Omit<JwtPayload, 'iat' | 'exp' | 'iss'>
     .setAudience(AUDIENCE)
     .setExpirationTime('24h')
     .setJti(crypto.randomUUID()) // Unique token ID for revocation tracking
-    .sign(JWT_SECRET);
+    .sign(getJwtSecret());
 }
 
 /**
@@ -29,7 +31,7 @@ export async function signToken(payload: Omit<JwtPayload, 'iat' | 'exp' | 'iss'>
  */
 export async function verifyToken(token: string): Promise<JwtPayload> {
   try {
-    const { payload } = await jose.jwtVerify(token, JWT_SECRET, {
+    const { payload } = await jose.jwtVerify(token, getJwtSecret(), {
       issuer: ISSUER,
       audience: AUDIENCE,
       maxTokenAge: MAX_TOKEN_AGE,

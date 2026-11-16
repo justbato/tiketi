@@ -57,7 +57,7 @@ function GlobalFloatingNav() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('tiketi_auth_user');
+      const stored = localStorage.getItem('tiketi_auth_user') || localStorage.getItem('tiketi_user');
       if (stored) {
         setAuthUser(JSON.parse(stored));
       } else {
@@ -280,7 +280,7 @@ function AppLayout({ children, role }: { children: React.ReactNode; role: string
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('tiketi_auth_user');
+      const stored = localStorage.getItem('tiketi_auth_user') || localStorage.getItem('tiketi_user');
       if (stored) {
         const parsed = JSON.parse(stored);
         setAuthUser(parsed);
@@ -484,70 +484,144 @@ function SalesChart({ data = [] }: { data?: { sales: number; day?: string }[] })
 function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<Event[]>([]);
+  const [pendingEvents, setPendingEvents] = useState<any[]>([]);
+  const [overview, setOverview] = useState<any>(null);
 
   useEffect(() => {
-    api.events.list().then(list => {
-      setEvents(list);
-    }).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      api.admin.getOverview().catch(() => null),
+      api.admin.getEvents().catch(() => []),
+      api.admin.getPendingEvents().catch(() => []),
+    ]).then(([ov, evts, pending]) => {
+      if (ov) setOverview(ov);
+      setEvents(evts || []);
+      setPendingEvents(pending || []);
+    }).finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div><h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Platform Overview</h1><div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">{[1, 2, 3, 4].map(i => <StatCardSkeleton key={i} />)}</div></div>;
 
-  const activeEvents = events.filter(e => e.status === 'active');
-  const totalCapacity = events.reduce((s, e) => s + (e.capacity || 0), 0);
+  const activeEvents = events.filter(e => e.status === 'active' && (e as any).approval_status !== 'pending');
+  const pendingCount = pendingEvents.length || overview?.pending_events || 0;
+  const totalRevenue = overview?.total_revenue || 0;
+  const totalFees = overview?.total_fees || 0;
+  const totalOrganizers = overview?.event_owners || 0;
 
   return (
     <div>
-      <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Platform Overview</h1>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <StatCard label="Active Events" value={activeEvents.length} icon={Calendar} delay={0} />
-        <StatCard label="Total Events" value={events.length} icon={ShoppingBag} delay={50} />
-        <StatCard label="Total Capacity" value={totalCapacity.toLocaleString()} icon={Users} delay={100} />
-        <StatCard label="Platform Status" value="Online" icon={Shield} delay={150} />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold">Platform Overview</h1>
+          <p className="text-xs text-text-secondary mt-0.5">Central administration, event monitoring & financial controls</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link to="/admin/events"><Button variant="secondary" size="sm" icon={Calendar}>Manage Events</Button></Link>
+          <Link to="/admin/owners"><Button variant="secondary" size="sm" icon={Users}>Organizers</Button></Link>
+        </div>
       </div>
+
+      {/* Prominent Pending Events Alert if any are waiting */}
+      {pendingCount > 0 && (
+        <div className="mb-5 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-amber-500/40 bg-amber-500/10 shadow-lg animate-fade-up">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0 text-amber-500">
+              <Clock size={20} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-500">{pendingCount} Event{pendingCount > 1 ? 's' : ''} Awaiting Review</h4>
+              <p className="text-xs text-text-secondary mt-0.5">
+                Organizers have registered new events waiting for administrator approval and Paystack split setup.
+              </p>
+            </div>
+          </div>
+          <Link to="/admin/events" className="shrink-0">
+            <Button variant="primary" size="sm" className="bg-amber-600 hover:bg-amber-500 text-white w-full sm:w-auto">
+              Review &amp; Approve
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+        <StatCard label="Total Revenue" value={formatNaira(totalRevenue)} icon={DollarSign} delay={0} />
+        <StatCard label="Platform Fees" value={formatNaira(totalFees)} icon={Shield} delay={50} />
+        <StatCard label="Live Events" value={activeEvents.length} icon={Calendar} delay={100} />
+        <StatCard label="Pending Approval" value={pendingCount} icon={Clock} delay={150} />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
         <BentoCard className="lg:col-span-2" delay={200}>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Sales Trend</h3>
-            <Badge variant="neutral">14 days</Badge>
+            <h3 className="text-sm font-semibold">Registered Events &amp; Activity</h3>
+            <Link to="/admin/events" className="text-xs text-accent hover:underline">View All ({events.length})</Link>
           </div>
-          <SalesChart />
+          {events.length === 0 ? (
+            <div className="text-center py-8 text-xs text-text-muted">
+              No registered events yet. As organizers register, they will appear here.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {events.slice(0, 6).map(evt => {
+                const isPending = (evt as any).approval_status === 'pending';
+                const isRejected = (evt as any).approval_status === 'rejected';
+                return (
+                  <div key={evt.id} className="flex items-center justify-between gap-3 p-2.5 rounded-xl neu-card-inset">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate text-text-primary">{evt.name}</p>
+                        {isPending && <Badge variant="warning">Awaiting Approval</Badge>}
+                        {isRejected && <Badge variant="neutral">Rejected</Badge>}
+                        {!isPending && !isRejected && evt.status === 'active' && <Badge variant="success">Live</Badge>}
+                        {!isPending && !isRejected && evt.status === 'draft' && <Badge variant="neutral">Draft</Badge>}
+                        {evt.status === 'ended' && <Badge variant="neutral">Ended</Badge>}
+                      </div>
+                      <p className="text-xs text-text-muted mt-0.5 truncate">
+                        {evt.venue} • {formatDate(evt.eventDate)} {evt.category ? `• ${evt.category}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isPending ? (
+                        <Link to="/admin/events">
+                          <Button size="sm" variant="primary" className="text-xs !py-1 !px-2.5 bg-amber-600 hover:bg-amber-500 text-white">Review</Button>
+                        </Link>
+                      ) : (
+                        <Link to={`/event/${evt.id}`}>
+                          <Button size="sm" variant="secondary" className="text-xs !py-1 !px-2.5" icon={Eye}>View</Button>
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </BentoCard>
+
         <BentoCard delay={250}>
-          <h3 className="text-sm font-semibold mb-3">Quick Stats</h3>
+          <h3 className="text-sm font-semibold mb-3">Platform Health &amp; Summary</h3>
           <div className="space-y-3">
-            {[['Active Events', String(activeEvents.length)], ['Total Events', String(events.length)], ['Platform Gateway', 'Paystack Live']].map(([label, val, cls]) => (
-              <div key={label} className="flex justify-between items-center">
-                <span className="text-xs text-text-secondary">{label}</span>
-                <span className={`text-sm font-semibold ${cls || ''}`}>{val}</span>
+            {[
+              ['Active Events', String(activeEvents.length)],
+              ['Pending Review', String(pendingCount), pendingCount > 0 ? 'text-amber-500 font-bold' : ''],
+              ['Total Registered Events', String(events.length)],
+              ['Registered Organizers', String(totalOrganizers)],
+              ['Total Orders Processed', String(overview?.total_orders || 0)],
+              ['Platform Settlement', 'Paystack Split Live'],
+            ].map(([label, val, cls]) => (
+              <div key={label} className="flex justify-between items-center text-xs">
+                <span className="text-text-secondary">{label}</span>
+                <span className={`font-semibold ${cls || 'text-text-primary'}`}>{val}</span>
               </div>
             ))}
           </div>
-        </BentoCard>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-        <BentoCard delay={300}>
-          <h3 className="text-sm font-semibold mb-3">Recent Activity</h3>
-          <div className="space-y-3 text-xs text-text-muted">
-            <p>Platform security active. HMAC digital ticket verification enabled.</p>
-          </div>
-        </BentoCard>
-        <BentoCard delay={350}>
-          <h3 className="text-sm font-semibold mb-3">Active Events</h3>
-          <div className="space-y-3">
-            {activeEvents.length === 0 ? (
-              <p className="text-xs text-text-muted">No active events yet.</p>
-            ) : (
-              activeEvents.slice(0, 5).map(evt => (
-                <div key={evt.id} className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{evt.name}</p>
-                    <p className="text-xs text-text-muted">{formatDate(evt.eventDate)} • {evt.venue}</p>
-                  </div>
-                  <span className="text-xs text-text-secondary shrink-0">{evt.capacity} cap</span>
-                </div>
-              ))
-            )}
+
+          <div className="mt-5 pt-4 border-t border-[var(--border)]">
+            <Link to="/admin/settings" className="block w-full">
+              <Button variant="secondary" size="sm" className="w-full text-xs" icon={Settings}>
+                Payment &amp; Fee Settings
+              </Button>
+            </Link>
           </div>
         </BentoCard>
       </div>
@@ -2238,10 +2312,22 @@ function AdminOwners() {
   const [planners, setPlanners] = useState<any[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
+  const loadData = () => {
+    setLoading(true);
+    Promise.all([
+      api.admin.getOwners().catch(() => []),
+      api.admin.getEvents().catch(() => []),
+    ]).then(([ownersList, eventsList]) => {
+      setPlanners(ownersList || []);
+      setEvents(eventsList || []);
+    }).finally(() => setLoading(false));
+  };
+
   useEffect(() => {
-    api.events.list().then(setEvents).catch(() => {});
+    loadData();
   }, []);
 
   const handleDeactivate = async (plannerId: string, eventName?: string) => {
@@ -2262,9 +2348,10 @@ function AdminOwners() {
   };
 
   const filtered = planners.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.email.toLowerCase().includes(search.toLowerCase()) ||
-    (p.eventName && p.eventName.toLowerCase().includes(search.toLowerCase()))
+    (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (p.email || '').toLowerCase().includes(search.toLowerCase()) ||
+    (p.eventName && p.eventName.toLowerCase().includes(search.toLowerCase())) ||
+    (p.bank_name && p.bank_name.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -2290,108 +2377,136 @@ function AdminOwners() {
         </p>
       </div>
 
-      <div className="table-wrapper hidden sm:block">
-        <table>
-          <thead>
-            <tr>
-              <th>Organizer & Email</th>
-              <th>Managed Event</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th className="text-right">Admin Action</th>
-            </tr>
-          </thead>
-          <tbody>
+      {loading ? (
+        <div className="card p-8 text-center text-xs text-text-secondary">
+          Loading organizers and accounts...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card p-8 text-center space-y-2">
+          <Users size={32} className="text-text-muted mx-auto opacity-50" />
+          <h3 className="text-sm font-bold text-text-primary">No Event Organizers Found</h3>
+          <p className="text-xs text-text-secondary max-w-sm mx-auto">
+            {search ? 'No organizers match your search criteria.' : 'No organizers have registered on the platform yet.'}
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="table-wrapper hidden sm:block">
+            <table>
+              <thead>
+                <tr>
+                  <th>Organizer &amp; Email</th>
+                  <th>Managed Event</th>
+                  <th>Settlement Account</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th className="text-right">Admin Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(p => {
+                  const isDeactivated = p.status === 'deactivated';
+                  const assignedEvent = events.find(e => e.ownerId === p.id || (e as any).organizer_id === p.id || (e as any).planner_id === p.id || e.id === p.eventId);
+                  const eventTitle = p.eventName || assignedEvent?.name || 'General Event';
+
+                  return (
+                    <tr key={p.id}>
+                      <td>
+                        <div>
+                          <p className="font-semibold text-text-primary text-sm">{p.name}</p>
+                          <p className="text-xs text-text-secondary font-mono">{p.email}</p>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="max-w-[200px]">
+                          <p className="font-medium text-xs truncate text-text-primary">{eventTitle}</p>
+                          <span className="text-[10px] text-text-muted">1 Event = 1 Account</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="text-xs">
+                          <p className="font-mono text-text-secondary">{p.bank_name || 'Bank'}</p>
+                          <p className="font-mono text-[11px] text-text-muted">{p.account_number || '—'}</p>
+                        </div>
+                      </td>
+                      <td>
+                        {isDeactivated ? (
+                          <Badge variant="neutral">Deactivated (Closed)</Badge>
+                        ) : (
+                          <Badge variant="success">Active</Badge>
+                        )}
+                      </td>
+                      <td className="text-xs text-text-muted">
+                        {formatDate(p.created_at)}
+                      </td>
+                      <td className="text-right">
+                        {isDeactivated ? (
+                          <span className="text-xs text-text-muted italic">Event Concluded • Closed</span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
+                            disabled={loadingId === p.id}
+                            onClick={() => handleDeactivate(p.id, eventTitle)}
+                          >
+                            {loadingId === p.id ? 'Closing...' : 'Deactivate & Close Event'}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card List */}
+          <div className="sm:hidden space-y-3">
             {filtered.map(p => {
               const isDeactivated = p.status === 'deactivated';
-              const assignedEvent = events.find(e => e.id === p.eventId);
+              const assignedEvent = events.find(e => e.ownerId === p.id || (e as any).organizer_id === p.id || (e as any).planner_id === p.id || e.id === p.eventId);
               const eventTitle = p.eventName || assignedEvent?.name || 'General Event';
 
               return (
-                <tr key={p.id}>
-                  <td>
+                <div key={p.id} className="card p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-semibold text-text-primary text-sm">{p.name}</p>
-                      <p className="text-xs text-text-secondary font-mono">{p.email}</p>
+                      <p className="text-sm font-semibold">{p.name}</p>
+                      <p className="text-xs text-text-muted font-mono">{p.email}</p>
+                      {p.bank_name && (
+                        <p className="text-[11px] text-text-secondary mt-1 font-mono">
+                          {p.bank_name} • {p.account_number}
+                        </p>
+                      )}
                     </div>
-                  </td>
-                  <td>
-                    <div className="max-w-[200px]">
-                      <p className="font-medium text-xs truncate">{eventTitle}</p>
-                      <span className="text-[10px] text-text-muted">1 Event = 1 Account</span>
-                    </div>
-                  </td>
-                  <td>
                     {isDeactivated ? (
-                      <Badge variant="neutral">Deactivated (Closed)</Badge>
+                      <Badge variant="neutral">Closed</Badge>
                     ) : (
                       <Badge variant="success">Active</Badge>
                     )}
-                  </td>
-                  <td className="text-xs text-text-muted">
-                    {formatDate(p.created_at)}
-                  </td>
-                  <td className="text-right">
-                    {isDeactivated ? (
-                      <span className="text-xs text-text-muted italic">Event Concluded • Closed</span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
-                        disabled={loadingId === p.id}
-                        onClick={() => handleDeactivate(p.id, eventTitle)}
-                      >
-                        {loadingId === p.id ? 'Closing...' : 'Deactivate & Close Event'}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
+                  </div>
+                  <div className="pt-2 border-t border-[var(--shadow-dark)] text-xs flex justify-between items-center">
+                    <span className="text-text-secondary truncate max-w-[180px]">{eventTitle}</span>
+                    <span className="text-text-muted">{formatDate(p.created_at)}</span>
+                  </div>
+                  {!isDeactivated && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="w-full mt-2 !text-red-500 hover:!bg-red-500/10 border-red-500/30"
+                      disabled={loadingId === p.id}
+                      onClick={() => handleDeactivate(p.id, eventTitle)}
+                    >
+                      {loadingId === p.id ? 'Closing Account...' : 'Deactivate & Close Event'}
+                    </Button>
+                  )}
+                </div>
               );
             })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile Card List */}
-      <div className="sm:hidden space-y-3">
-        {filtered.map(p => {
-          const isDeactivated = p.status === 'deactivated';
-          const assignedEvent = events.find(e => e.id === p.eventId);
-          const eventTitle = p.eventName || assignedEvent?.name || 'General Event';
-
-          return (
-            <div key={p.id} className="card p-4 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold">{p.name}</p>
-                  <p className="text-xs text-text-muted font-mono">{p.email}</p>
-                </div>
-                {isDeactivated ? (
-                  <Badge variant="neutral">Closed</Badge>
-                ) : (
-                  <Badge variant="success">Active</Badge>
-                )}
-              </div>
-              <div className="pt-2 border-t border-[var(--shadow-dark)] text-xs flex justify-between items-center">
-                <span className="text-text-secondary truncate max-w-[180px]">{eventTitle}</span>
-                <span className="text-text-muted">{formatDate(p.created_at)}</span>
-              </div>
-              {!isDeactivated && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="w-full mt-2 !text-red-500 hover:!bg-red-500/10 border-red-500/30"
-                  disabled={loadingId === p.id}
-                  onClick={() => handleDeactivate(p.id, eventTitle)}
-                >
-                  {loadingId === p.id ? 'Closing Account...' : 'Deactivate & Close Event'}
-                </Button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2400,7 +2515,8 @@ function AdminEvents() {
   const [events, setEvents] = useState<Event[]>([]);
   const [pendingEvents, setPendingEvents] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
-  const [activeTab, setActiveTab] = useState<'pending' | 'live' | 'ended'>('pending');
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pending' | 'live' | 'all' | 'ended'>('pending');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Bank edit modal state
@@ -2410,9 +2526,7 @@ function AdminEvents() {
   const [modalAccountNumber, setModalAccountNumber] = useState('');
   const [modalAccountName, setModalAccountName] = useState('');
   const [banksList, setBanksList] = useState<{ id: number; name: string; code: string }[]>([]);
-  const [resolvingModalBank, setResolvingModalBank] = useState(false);
 
-  // Fetch banks and pending events
   const loadPending = async () => {
     setLoadingPending(true);
     try {
@@ -2425,10 +2539,22 @@ function AdminEvents() {
     }
   };
 
+  const loadAllEvents = async () => {
+    setLoadingEvents(true);
+    try {
+      const allEvts = await api.admin.getEvents();
+      setEvents(allEvts);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
   useEffect(() => {
     loadPending();
-    api.events.list().then(setEvents).catch(() => {});
-    api.auth.getBanks().then(setBanksList).catch(() => { });
+    loadAllEvents();
+    api.auth.getBanks().then(setBanksList).catch(() => {});
   }, []);
 
   const handleApprove = async (eventId: string, eventName: string) => {
@@ -2437,7 +2563,7 @@ function AdminEvents() {
       await api.admin.approveEvent(eventId);
       showToast(`Event "${eventName}" approved! Paystack subaccount created.`, 'success');
       loadPending();
-      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, approval_status: 'approved', status: 'active' as const } : e));
+      loadAllEvents();
     } catch (err: any) {
       showToast(err.message || 'Failed to approve event', 'error');
     } finally {
@@ -2454,7 +2580,7 @@ function AdminEvents() {
       await api.admin.rejectEvent(eventId, reason);
       showToast(`Event "${eventName}" rejected.`, 'info');
       loadPending();
-      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, approval_status: 'rejected', status: 'draft' as const } : e));
+      loadAllEvents();
     } catch (err: any) {
       showToast(err.message || 'Failed to reject event', 'error');
     } finally {
@@ -2486,6 +2612,7 @@ function AdminEvents() {
       showToast('Organizer bank details updated & logged!', 'success');
       setBankModalEvent(null);
       loadPending();
+      loadAllEvents();
     } catch (err: any) {
       showToast(err.message || 'Failed to update bank details', 'error');
     }
@@ -2497,9 +2624,11 @@ function AdminEvents() {
     }
     try {
       await api.events.update(evtId, { status: 'ended' });
-    } catch {}
-    setEvents(prev => prev.map(e => e.id === evtId ? { ...e, status: 'ended' as const } : e));
-    showToast(`Event "${evtName}" closed from live sales. Preserved in history.`, 'success');
+      setEvents(prev => prev.map(e => e.id === evtId ? { ...e, status: 'ended' as const } : e));
+      showToast(`Event "${evtName}" closed from live sales. Preserved in history.`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to close event', 'error');
+    }
   };
 
   const liveEvents = events.filter(e => e.status === 'active' && (e as any).approval_status !== 'pending');
@@ -2509,7 +2638,7 @@ function AdminEvents() {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold">Event Approvals & Management</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold">Event Approvals &amp; Management</h1>
           <p className="text-xs text-text-secondary mt-0.5">
             Approve organizer events, link Paystack subaccounts, and manage live listings.
           </p>
@@ -2517,10 +2646,10 @@ function AdminEvents() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 mb-5 border-b border-[var(--border)] pb-2">
+      <div className="flex items-center gap-2 mb-5 border-b border-[var(--border)] pb-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('pending')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${activeTab === 'pending'
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${activeTab === 'pending'
               ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
               : 'text-text-secondary hover:text-text-primary'
             }`}
@@ -2530,7 +2659,7 @@ function AdminEvents() {
 
         <button
           onClick={() => setActiveTab('live')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${activeTab === 'live'
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${activeTab === 'live'
               ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
               : 'text-text-secondary hover:text-text-primary'
             }`}
@@ -2539,13 +2668,23 @@ function AdminEvents() {
         </button>
 
         <button
+          onClick={() => setActiveTab('all')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${activeTab === 'all'
+              ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+              : 'text-text-secondary hover:text-text-primary'
+            }`}
+        >
+          <Calendar size={14} /> All Registered Events ({events.length})
+        </button>
+
+        <button
           onClick={() => setActiveTab('ended')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${activeTab === 'ended'
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${activeTab === 'ended'
               ? 'bg-accent/15 text-accent border border-accent/30'
               : 'text-text-secondary hover:text-text-primary'
             }`}
         >
-          <Calendar size={14} /> Ended / Concluded ({endedEvents.length})
+          <AlertTriangle size={14} /> Ended / Concluded ({endedEvents.length})
         </button>
       </div>
 
@@ -2646,60 +2785,153 @@ function AdminEvents() {
       {/* ── TAB 2: LIVE EVENTS ── */}
       {activeTab === 'live' && (
         <div className="space-y-3">
-          {liveEvents.map(evt => (
-            <div key={evt.id} className="card p-4 sm:p-5">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <h3 className="text-sm font-semibold truncate">{evt.name}</h3>
-                    <Badge variant="success">Live &amp; Active</Badge>
+          {liveEvents.length === 0 ? (
+            <div className="card p-8 text-center text-xs text-text-muted">
+              No live events currently active.
+            </div>
+          ) : (
+            liveEvents.map(evt => (
+              <div key={evt.id} className="card p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="text-sm font-semibold truncate text-text-primary">{evt.name}</h3>
+                      <Badge variant="success">Live &amp; Active</Badge>
+                    </div>
+                    <p className="text-xs text-text-secondary truncate">{evt.venue}</p>
+                    <p className="text-xs text-text-muted mt-1">Date: {formatDate(evt.eventDate)} • Capacity: {evt.capacity}</p>
                   </div>
-                  <p className="text-xs text-text-secondary truncate">{evt.venue}</p>
-                  <p className="text-xs text-text-muted mt-1">Date: {formatDate(evt.eventDate)}</p>
-                </div>
 
-                <div className="flex items-center gap-2 mt-2 sm:mt-0">
-                  <Link to={`/event/${evt.id}`}>
-                    <Button variant="secondary" size="sm" icon={Eye}>View Page</Button>
-                  </Link>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
-                    onClick={() => handleCloseEvent(evt.id, evt.name)}
-                  >
-                    End &amp; Archive
-                  </Button>
+                  <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                    <Link to={`/event/${evt.id}`}>
+                      <Button variant="secondary" size="sm" icon={Eye}>View Page</Button>
+                    </Link>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
+                      onClick={() => handleCloseEvent(evt.id, evt.name)}
+                    >
+                      End &amp; Archive
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
 
-      {/* ── TAB 3: ENDED / CONCLUDED ── */}
+      {/* ── TAB 3: ALL REGISTERED EVENTS ── */}
+      {activeTab === 'all' && (
+        <div className="space-y-3">
+          {loadingEvents ? (
+            <div className="card p-8 text-center text-xs text-text-secondary">
+              Loading all registered events...
+            </div>
+          ) : events.length === 0 ? (
+            <div className="card p-8 text-center text-xs text-text-muted">
+              No registered events found in the database.
+            </div>
+          ) : (
+            events.map(evt => {
+              const isPending = (evt as any).approval_status === 'pending';
+              const isApproved = (evt as any).approval_status === 'approved';
+              const isRejected = (evt as any).approval_status === 'rejected';
+              const org = (evt as any).organizer || {};
+
+              return (
+                <div key={evt.id} className="card p-4 sm:p-5 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className="text-sm font-semibold truncate text-text-primary">{evt.name}</h3>
+                        {isPending && <Badge variant="warning">Pending Approval</Badge>}
+                        {isApproved && <Badge variant="success">Approved</Badge>}
+                        {isRejected && <Badge variant="error">Rejected</Badge>}
+                        {evt.status === 'active' && <Badge variant="success">Active</Badge>}
+                        {evt.status === 'draft' && <Badge variant="neutral">Draft</Badge>}
+                        {evt.status === 'ended' && <Badge variant="neutral">Ended</Badge>}
+                      </div>
+                      <p className="text-xs text-text-secondary truncate">{evt.venue} • {formatDate(evt.eventDate)}</p>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Category: {evt.category || 'General'} • Capacity: {evt.capacity}
+                        {org.name ? ` • Organizer: ${org.name} (${org.email || ''})` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-2 sm:mt-0 flex-wrap">
+                      <Link to={`/event/${evt.id}`}>
+                        <Button variant="secondary" size="sm" icon={Eye}>View</Button>
+                      </Link>
+                      {isPending && (
+                        <>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                            onClick={() => handleApprove(evt.id, evt.name)}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
+                            onClick={() => handleReject(evt.id, evt.name)}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                      {evt.status === 'active' && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="!text-red-500 hover:!bg-red-500/10 border-red-500/30"
+                          onClick={() => handleCloseEvent(evt.id, evt.name)}
+                        >
+                          End &amp; Archive
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* ── TAB 4: ENDED / CONCLUDED ── */}
       {activeTab === 'ended' && (
         <div className="space-y-3">
-          {endedEvents.map(evt => (
-            <div key={evt.id} className="card p-4 sm:p-5 opacity-80">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <h3 className="text-sm font-semibold truncate">{evt.name}</h3>
-                    <Badge variant="neutral">Ended (Historical Record)</Badge>
+          {endedEvents.length === 0 ? (
+            <div className="card p-8 text-center text-xs text-text-muted">
+              No concluded or archived events.
+            </div>
+          ) : (
+            endedEvents.map(evt => (
+              <div key={evt.id} className="card p-4 sm:p-5 opacity-80">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="text-sm font-semibold truncate text-text-primary">{evt.name}</h3>
+                      <Badge variant="neutral">Ended (Historical Record)</Badge>
+                    </div>
+                    <p className="text-xs text-text-secondary truncate">{evt.venue}</p>
+                    <p className="text-xs text-text-muted mt-1">Date: {formatDate(evt.eventDate)}</p>
                   </div>
-                  <p className="text-xs text-text-secondary truncate">{evt.venue}</p>
-                  <p className="text-xs text-text-muted mt-1">Date: {formatDate(evt.eventDate)}</p>
-                </div>
 
-                <div className="flex items-center gap-2 mt-2 sm:mt-0">
-                  <Link to={`/event/${evt.id}`}>
-                    <Button variant="secondary" size="sm" icon={Eye}>Audit Records</Button>
-                  </Link>
+                  <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                    <Link to={`/event/${evt.id}`}>
+                      <Button variant="secondary" size="sm" icon={Eye}>Audit Records</Button>
+                    </Link>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
 
@@ -2786,18 +3018,24 @@ function AdminOrders() {
 
   useEffect(() => {
     setLoading(true);
-    api.orders.list().then(setOrders).catch(() => {}).finally(() => setLoading(false));
+    api.admin.getOrders()
+      .then(setOrders)
+      .catch(() => {
+        api.orders.list().then(setOrders).catch(() => {});
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = orders.filter(o =>
     (o.reference || '').toLowerCase().includes(search.toLowerCase()) ||
     (o.buyerName || '').toLowerCase().includes(search.toLowerCase()) ||
-    (o.buyerEmail || '').toLowerCase().includes(search.toLowerCase())
+    (o.buyerEmail || '').toLowerCase().includes(search.toLowerCase()) ||
+    ((o as any).eventName || '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <div>
-      <SectionHeader title="Orders" action={<Input placeholder="Search orders..." icon={Search} value={search} onChange={setSearch} className="max-w-[200px] sm:max-w-xs" />} />
+      <SectionHeader title="Platform Orders" action={<Input placeholder="Search orders, buyer, reference..." icon={Search} value={search} onChange={setSearch} className="max-w-[200px] sm:max-w-xs" />} />
       {loading ? (
         <div className="card p-8 text-center text-xs text-text-muted">Loading orders...</div>
       ) : filtered.length === 0 ? (
@@ -2808,11 +3046,15 @@ function AdminOrders() {
             {filtered.map(o => (
               <div key={o.id} className="card p-3">
                 <div className="flex justify-between items-start">
-                  <div><p className="text-sm font-medium">{o.buyerName}</p><p className="text-xs text-text-muted">{o.buyerEmail}</p></div>
+                  <div>
+                    <p className="text-sm font-medium">{o.buyerName}</p>
+                    <p className="text-xs text-text-muted">{o.buyerEmail}</p>
+                    {(o as any).eventName && <p className="text-xs text-accent mt-0.5 font-medium">{(o as any).eventName}</p>}
+                  </div>
                   <Badge variant={o.status === 'paid' ? 'success' : 'warning'}>{o.status}</Badge>
                 </div>
                 <div className="flex justify-between mt-2 text-xs">
-                  <span className="text-text-secondary">{o.lines?.map(l => l.ticketTypeName).join(', ') || 'Tickets'}</span>
+                  <span className="font-mono text-text-secondary">{o.reference}</span>
                   <span className="font-semibold">{formatNaira(o.total)}</span>
                 </div>
               </div>
@@ -2820,12 +3062,18 @@ function AdminOrders() {
           </div>
           <div className="table-wrapper hidden sm:block">
             <table>
-              <thead><tr><th>Reference</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
+              <thead><tr><th>Reference</th><th>Buyer &amp; Email</th><th>Event</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
               <tbody>
                 {filtered.map(o => (
                   <tr key={o.id}>
                     <td><code className="text-xs font-mono">{o.reference}</code></td>
-                    <td>{o.buyerName}</td>
+                    <td>
+                      <div>
+                        <p className="font-medium text-xs text-text-primary">{o.buyerName}</p>
+                        <p className="text-[11px] text-text-muted font-mono">{o.buyerEmail}</p>
+                      </div>
+                    </td>
+                    <td className="text-xs font-medium max-w-[150px] truncate">{(o as any).eventName || 'Event'}</td>
                     <td className="font-medium">{formatNaira(o.total)}</td>
                     <td><Badge variant={o.status === 'paid' ? 'success' : 'warning'}>{o.status}</Badge></td>
                     <td className="text-xs">{formatDateTime(o.createdAt)}</td>
@@ -2841,13 +3089,73 @@ function AdminOrders() {
 }
 
 function AdminPayouts() {
+  const [payouts, setPayouts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.admin.getPayouts()
+      .then(setPayouts)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const totalGross = payouts.reduce((s, p) => s + (Number(p.gross) || 0), 0);
+  const totalFees = payouts.reduce((s, p) => s + (Number(p.platform_fee) || 0), 0);
+  const totalOrganizerShare = payouts.reduce((s, p) => s + (Number(p.organizer_share) || 0), 0);
+
   return (
     <div>
-      <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Payouts</h1>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
-        <StatCard label="Disbursed" value={formatNaira(81125)} icon={DollarSign} delay={0} />
-        <StatCard label="Pending" value={formatNaira(33250)} icon={Clock} delay={50} />
-        <StatCard label="Failed" value={formatNaira(0)} icon={AlertTriangle} delay={100} />
+      <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Paystack Subaccount Settlements &amp; Payouts</h1>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-5">
+        <StatCard label="Total Ticket Gross" value={formatNaira(totalGross)} icon={DollarSign} delay={0} />
+        <StatCard label="Organizer Disbursements" value={formatNaira(totalOrganizerShare)} icon={CheckCircle2} delay={50} />
+        <StatCard label="Platform Service Fees" value={formatNaira(totalFees)} icon={Shield} delay={100} />
+      </div>
+
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold">Settlement Transaction History</h3>
+            <p className="text-xs text-text-muted mt-0.5">Automated split disbursement via Paystack dedicated subaccounts</p>
+          </div>
+          <Badge variant="success">Paystack Split Active</Badge>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-xs text-text-muted">Loading settlements...</div>
+        ) : payouts.length === 0 ? (
+          <div className="text-center py-8 text-xs text-text-muted">No settled payout transactions recorded yet.</div>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Order Ref</th>
+                  <th>Event Name</th>
+                  <th>Subaccount</th>
+                  <th>Gross Amount</th>
+                  <th>Platform Fee</th>
+                  <th>Organizer Disbursed</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payouts.map(p => (
+                  <tr key={p.id}>
+                    <td><code className="text-xs font-mono">{p.order_reference}</code></td>
+                    <td className="text-xs font-medium">{p.event_name || 'Event'}</td>
+                    <td><code className="text-[11px] font-mono text-text-secondary">{p.paystack_subaccount_code || 'Subaccount'}</code></td>
+                    <td className="font-semibold text-xs">{formatNaira(p.gross)}</td>
+                    <td className="text-xs text-amber-500 font-medium">{formatNaira(p.platform_fee)}</td>
+                    <td className="text-xs text-emerald-400 font-medium">{formatNaira(p.organizer_share)}</td>
+                    <td className="text-xs text-text-muted">{formatDateTime(p.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2857,12 +3165,13 @@ function AdminSettings() {
   const [feePercent, setFeePercent] = useState(5.0);
   const [feeBearer, setFeeBearer] = useState<'organizer' | 'platform'>('organizer');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.admin.getSettings().then(s => {
       if (s?.fee_percent != null) setFeePercent(Number(s.fee_percent));
       if (s?.fee_bearer) setFeeBearer(s.fee_bearer);
-    }).catch(() => { });
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const handleSave = async () => {
@@ -2870,6 +3179,7 @@ function AdminSettings() {
     try {
       await api.admin.updateSettings({
         fee_percent: feePercent,
+        platform_fee_percent: feePercent,
         fee_bearer: feeBearer,
       });
       showToast('Settings saved & logged to audit table!', 'success');
@@ -2926,7 +3236,7 @@ function AdminSettings() {
           </p>
         </div>
 
-        <Button variant="primary" loading={saving} onClick={handleSave} className="w-full">
+        <Button variant="primary" loading={saving} disabled={loading} onClick={handleSave} className="w-full">
           Save Settings
         </Button>
       </div>
@@ -2935,12 +3245,23 @@ function AdminSettings() {
 }
 
 function AdminAudit() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.admin.getAuditLogs()
+      .then(setLogs)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div>
       <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Audit Log</h1>
-      {logs.length === 0 ? (
+      {loading ? (
+        <div className="card p-8 text-center text-xs text-text-muted">Loading audit entries...</div>
+      ) : logs.length === 0 ? (
         <div className="card p-8 text-center text-xs text-text-muted">
           No audit entries logged yet. All administrative actions and fee adjustments are recorded here.
         </div>
@@ -2949,10 +3270,16 @@ function AdminAudit() {
           {logs.map(log => (
             <div key={log.id} className="card p-3">
               <div className="flex items-start gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-navy mt-1.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs sm:text-sm text-text-primary">{log.details}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{log.userId} - {formatDateTime(log.createdAt)}</p>
+                <div className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-xs sm:text-sm font-semibold text-text-primary">{log.action}</p>
+                    <span className="text-[11px] text-text-muted">{formatDateTime(log.created_at)}</span>
+                  </div>
+                  <p className="text-xs text-text-secondary mt-0.5">{log.details || 'Action performed'}</p>
+                  <p className="text-[10px] text-text-muted mt-1 font-mono">
+                    Actor: {log.actor_role || 'admin'} • Entity: {log.entity_type} ({log.entity_id})
+                  </p>
                 </div>
               </div>
             </div>
@@ -3422,6 +3749,10 @@ function CreateEventForm() {
             onClick={async () => {
               if (!name.trim() || !description.trim() || !venue.trim() || !date || !salesEnd || !capacity) {
                 showToast('Please fill in all required fields', 'error');
+                return;
+              }
+              if (description.trim().length < 10) {
+                showToast('Event description must be at least 10 characters', 'error');
                 return;
               }
               setCreating(true);
@@ -4060,10 +4391,12 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('tiketi_auth_user');
-      if (stored) {
+      const token = localStorage.getItem('token');
+      const role = localStorage.getItem('tiketi_role');
+      const stored = localStorage.getItem('tiketi_auth_user') || localStorage.getItem('tiketi_user');
+      if (token && stored) {
         const u = JSON.parse(stored);
-        if (u.role === 'admin') {
+        if (u.role === 'admin' || role === 'admin') {
           setAuthorized(true);
           return;
         }

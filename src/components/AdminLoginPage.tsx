@@ -24,9 +24,12 @@ export function AdminLoginPage() {
     setLoading(true);
     try {
       const res = await api.auth.login(email.trim(), password, 'admin');
-      setAdminUser(res.user);
-      setStep('2fa');
-      showToast('Credentials accepted. Enter 2FA verification token.', 'info');
+      if (res.user) {
+        localStorage.setItem('tiketi_auth_user', JSON.stringify(res.user));
+        localStorage.setItem('tiketi_user', JSON.stringify(res.user));
+      }
+      showToast('Identity verified. Loading Administrator Terminal...', 'success');
+      navigate('/admin');
     } catch (err: any) {
       showToast(err.message || 'Access Denied: Invalid administrative credentials', 'error');
     } finally {

@@ -71,7 +71,7 @@ webhookRoutes.post('/paystack', async (c) => {
     }
 
     // Verify amount (kobo vs naira * 100)
-    const expectedKobo = Math.round((order.gross || order.total) * 100);
+    const expectedKobo = Math.round((order.amount_charged || order.gross || order.total) * 100);
     if (amountKobo < expectedKobo) {
       console.warn(`[Webhook] Amount mismatch for ${reference}: expected ${expectedKobo}, got ${amountKobo}`);
       await supabase

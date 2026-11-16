@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios from './httpClient.js';
 
 // =============================================
 // PAYSTACK SERVICE
@@ -264,6 +264,14 @@ export interface FeeBreakdown {
   platform_fee_kobo: number;
   /** Total charge in kobo */
   gross_kobo: number;
+}
+
+export function calculateBuyerFee(base_naira: number): number {
+  const RATE = 0.015, CAP = 2000;
+  let total = base_naira / (1 - RATE);
+  if (total >= 2500) total = (base_naira + 100) / (1 - RATE);
+  if (total - base_naira > CAP) total = base_naira + CAP;
+  return Math.ceil((total - base_naira) * 100) / 100;
 }
 
 export function calculateSplit(

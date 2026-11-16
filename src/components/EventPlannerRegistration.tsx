@@ -519,6 +519,7 @@ export function EventOrganizerRegistration() {
   const [capacity, setCapacity] = useState('500');
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [posterPreview, setPosterPreview] = useState<string | null>(null);
+  const [posterFile, setPosterFile] = useState<File | null>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
   const posterRef = useRef<HTMLInputElement>(null);
 
@@ -678,8 +679,8 @@ export function EventOrganizerRegistration() {
         showToast(msg, 'error');
         return false;
       }
-      if (!eventDescription.trim()) {
-        const msg = 'Event description is required';
+      if (!eventDescription.trim() || eventDescription.trim().length < 10) {
+        const msg = 'Event description must be at least 10 characters';
         setFormError(msg);
         showToast(msg, 'error');
         return false;
@@ -802,6 +803,21 @@ export function EventOrganizerRegistration() {
         eventName: eventName.trim(),
       });
 
+      // Upload poster image if file was selected
+      let uploadedPosterUrl: string | null = null;
+      if (posterFile) {
+        try {
+          const uploadRes = await api.events.upload(posterFile);
+          if (uploadRes?.url) {
+            uploadedPosterUrl = uploadRes.url;
+          }
+        } catch (uploadErr: any) {
+          console.warn('Failed to upload poster to storage:', uploadErr);
+        }
+      } else if (posterPreview && !posterPreview.startsWith('blob:')) {
+        uploadedPosterUrl = posterPreview;
+      }
+
       // 2. Create the event
       const createdEvent = await api.events.create({
         name: eventName.trim(),
@@ -814,8 +830,8 @@ export function EventOrganizerRegistration() {
         eventDate: eventDate || new Date(Date.now() + 86400000 * 7).toISOString(),
         salesEndDate: salesEnd || new Date(Date.now() + 86400000 * 6).toISOString(),
         capacity: parseInt(capacity) || 500,
-        bannerUrl: bannerPreview || '',
-        posterUrl: posterPreview || bannerPreview || '',
+        bannerUrl: uploadedPosterUrl || '',
+        posterUrl: uploadedPosterUrl || '',
         category: eventCategory,
       });
 
@@ -1410,7 +1426,10 @@ export function EventOrganizerRegistration() {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) setPosterPreview(URL.createObjectURL(f));
+                  if (f) {
+                    setPosterFile(f);
+                    setPosterPreview(URL.createObjectURL(f));
+                  }
                 }}
               />
             </div>

@@ -9,19 +9,28 @@ import { supabase } from '../index.js';
 // =============================================
 
 const createEventSchema = z.object({
-  name: z.string().min(3).max(200),
-  description: z.string().min(10).max(5000),
-  venue: z.string().min(3).max(300),
+  name: z.string().min(3, 'Event name must be at least 3 characters').max(200),
+  description: z.string().min(10, 'Event description must be at least 10 characters').max(5000),
+  venue: z.string().min(3, 'Venue must be at least 3 characters').max(300),
   party_type: z.enum(['campus', 'off_campus']).default('campus'),
-  university: z.string().max(200).optional(),
-  state: z.string().max(100).optional(),
+  university: z.string().max(200).optional().nullable(),
+  state: z.string().max(100).optional().nullable(),
   event_date: z.string(),
   timezone: z.string().default('Africa/Lagos'),
   sales_end_date: z.string(),
   capacity: z.number().int().min(1).max(1000000),
-  banner_url: z.string().url().optional().nullable(),
-  logo_url: z.string().url().optional().nullable(),
-  poster_url: z.string().url().optional().nullable(),
+  banner_url: z.string().optional().nullable().transform(v => {
+    if (!v || v.startsWith('blob:')) return null;
+    return v;
+  }),
+  logo_url: z.string().optional().nullable().transform(v => {
+    if (!v || v.startsWith('blob:')) return null;
+    return v;
+  }),
+  poster_url: z.string().optional().nullable().transform(v => {
+    if (!v || v.startsWith('blob:')) return null;
+    return v;
+  }),
   category: z.string().max(40).optional().transform(v => {
     const trimmed = (v || '').trim();
     return trimmed.length > 0 ? trimmed.slice(0, 40) : 'Other';
@@ -200,13 +209,71 @@ eventRoutes.get('/', requireAuth, async (c) => {
   return c.json({ events: events || [] });
 });
 
+// Upload event image (posters / flyers / banners)
+eventRoutes.post('/upload', optionalAuth, async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body['file'];
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'No image file provided' }, 400);
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return c.json({ error: 'Image file too large (max 5MB)' }, 400);
+    }
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validTypes.includes(file.type)) {
+      return c.json({ error: 'Invalid file format. Please upload JPG, PNG, or WebP' }, 400);
+    }
+
+    const ext = file.name ? file.name.split('.').pop() : 'jpg';
+    const filename = `events/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${ext}`;
+    const arrayBuffer = await file.arrayBuffer();
+
+    const bucketName = 'event-posters';
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      if (!buckets?.some(b => b.name === bucketName)) {
+        await supabase.storage.createBucket(bucketName, { public: true });
+      }
+    } catch {}
+
+    const { error: uploadErr } = await supabase.storage
+      .from(bucketName)
+      .upload(filename, arrayBuffer, {
+        contentType: file.type,
+        upsert: true,
+      });
+
+    if (uploadErr) {
+      console.error('Storage upload error:', uploadErr);
+      return c.json({ error: uploadErr.message || 'Failed to upload image' }, 500);
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filename);
+
+    return c.json({ url: publicUrl }, 201);
+  } catch (err: any) {
+    console.error('Upload error:', err);
+    return c.json({ error: err.message || 'Image upload failed' }, 500);
+  }
+});
+
 // Create event (Defaults to approval_status: 'pending')
 eventRoutes.post('/', requireAuth, async (c) => {
   let body: z.infer<typeof createEventSchema>;
   try {
     body = createEventSchema.parse(await c.req.json());
-  } catch {
-    return c.json({ error: 'Invalid request body' }, 400);
+  } catch (err: any) {
+    const firstErr = err.errors?.[0];
+    const message = firstErr?.message || 'Invalid request body';
+    const field = firstErr?.path?.join('.') || '';
+    const errText = field ? `${field}: ${message}` : message;
+    return c.json({ error: errText, details: err.errors }, 400);
   }
 
   const user = c.get('user') as JwtPayload;

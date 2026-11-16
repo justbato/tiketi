@@ -629,9 +629,17 @@ export function PublicEventPage() {
 
   const totalTicketsCount = cartItems.reduce((s, item) => s + item.qty, 0);
   const subtotal = cartItems.reduce((s, item) => s + (item.price * item.qty), 0);
-  const fee = Math.min(subtotal * 0.015, 2000);
-  const vat = fee * 0.075;
-  const total = subtotal + fee + vat;
+  const qty = cartItems.reduce((s, i) => s + i.qty, 0);
+  const flatFee = subtotal > 0 ? 100 * qty : 0;
+  const fee = (() => {
+    const base = subtotal + flatFee;
+    let t = base / 0.985;
+    if (t >= 2500) t = (base + 100) / 0.985;
+    if (t - base > 2000) t = base + 2000;
+    return flatFee + Math.ceil((t - base) * 100) / 100;
+  })();
+  const vat = 0;
+  const total = subtotal + fee;
 
   const posterImg = getAbsoluteImageUrl(event.posterUrl || event.bannerUrl) || '/default-cover.png';
 
@@ -665,7 +673,7 @@ export function PublicEventPage() {
         cartItems={cartItems}
         total={total}
         subtotal={subtotal}
-        fee={fee + vat}
+        fee={fee}
         isDirect={isDirectSale}
         model={refModel}
         onBack={() => setShowCheckout(false)}
@@ -1002,7 +1010,7 @@ export function PublicEventPage() {
 
                     <div className="pt-2 border-t border-[var(--shadow-dark)] flex justify-between text-text-secondary text-[11px]">
                       <span>Platform & Processing Fee</span>
-                      <span>{formatNaira(fee + vat)}</span>
+                      <span>{formatNaira(fee)}</span>
                     </div>
 
                     <div className="pt-2 border-t border-[var(--shadow-dark)] flex justify-between items-center text-sm font-bold text-text-primary">

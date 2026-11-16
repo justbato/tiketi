@@ -8,6 +8,7 @@ import { generateTicketCode } from '../utils/tickets.js';
 import {
   initializeTransaction,
   calculateSplit,
+  calculateBuyerFee,
   verifyTransaction
 } from '../services/paystack.js';
 
@@ -144,6 +145,13 @@ orderRoutes.post('/', async (c) => {
   }
 
   const split = calculateSplit(subtotal, feePercent);
+  const totalQty = orderLines.reduce((s, l) => s + l.quantity, 0);
+  const flatFee = subtotal > 0 ? 100 * totalQty : 0;
+  const flatFeeKobo = Math.round(flatFee * 100);
+  const buyerFee = calculateBuyerFee(subtotal + flatFee);
+  const buyerFeeKobo = Math.round(buyerFee * 100);
+  const chargeKobo = split.gross_kobo + flatFeeKobo + buyerFeeKobo;
+
   const orderRef = generateOrderRef();
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 mins window
 
@@ -164,6 +172,9 @@ orderRoutes.post('/', async (c) => {
       organizer_share: split.organizer_share_naira,
       fees: split.platform_fee_naira,
       total: subtotal,
+      amount_charged: chargeKobo / 100,
+      buyer_fee: buyerFee,
+      flat_fee: flatFee,
       status: 'pending',
       expires_at: expiresAt.toISOString()
     })
@@ -194,11 +205,11 @@ orderRoutes.post('/', async (c) => {
 
     const payment = await initializeTransaction({
       email: body.buyer_email,
-      amount_kobo: split.gross_kobo,
+      amount_kobo: chargeKobo,
       reference: orderRef,
       subaccount_code: paystackSubaccount,
-      transaction_charge_kobo: split.platform_fee_kobo,
-      fee_bearer: 'subaccount',
+      transaction_charge_kobo: split.platform_fee_kobo + flatFeeKobo + buyerFeeKobo,
+      fee_bearer: 'account',
       callback_url: `${(process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim()}/payment/callback`,
       metadata: {
         order_id: order.id,
@@ -226,13 +237,16 @@ orderRoutes.post('/', async (c) => {
         gross: split.gross_naira,
         platform_fee: split.platform_fee_naira,
         organizer_share: split.organizer_share_naira,
+        buyer_fee: buyerFee,
+        flat_fee: flatFee,
+        amount_charged: chargeKobo / 100,
         expires_at: expiresAt.toISOString()
       },
       payment: {
         authorization_url: payment.authorization_url,
         access_code: payment.access_code,
         reference: payment.reference,
-        amount: subtotal,
+        amount: chargeKobo / 100,
       }
     }, 201);
   } catch (err: any) {
@@ -268,6 +282,20 @@ orderRoutes.post('/:reference/verify-payment', async (c) => {
     const verification = await verifyTransaction(order.paystack_reference || reference);
 
     if (verification.status === 'success') {
+      const expectedKobo = Math.round((order.amount_charged || order.gross || order.total) * 100);
+      if (verification.amount && verification.amount < expectedKobo) {
+        console.warn(`[Verify] Amount mismatch for ${reference}: expected ${expectedKobo}, got ${verification.amount}`);
+        await supabase
+          .from('orders')
+          .update({
+            status: 'amount_mismatch',
+            amount_paid: verification.amount / 100
+          })
+          .eq('id', order.id);
+
+        return c.json({ status: 'amount_mismatch', message: 'Amount mismatch' }, 400);
+      }
+
       const paidAt = new Date().toISOString();
 
       // Mark order paid
@@ -471,12 +499,12 @@ orderRoutes.get('/:reference', requireAuth, async (c) => {
   return c.json({ order });
 });
 
-// List orders for event organizer
+// List orders for event organizer or admin
 orderRoutes.get('/', requireAuth, async (c) => {
   const user = c.get('user') as JwtPayload;
   const event_id = c.req.query('event_id');
 
-  if (user.role !== 'owner' && user.role !== 'organizer' && user.role !== 'planner') {
+  if (user.role !== 'owner' && user.role !== 'organizer' && user.role !== 'planner' && user.role !== 'admin') {
     return c.json({ error: 'Access denied' }, 403);
   }
 
@@ -484,18 +512,25 @@ orderRoutes.get('/', requireAuth, async (c) => {
     .from('orders')
     .select(`
       *,
-      event:events!inner(id, name, organizer_id, planner_id)
+      event:events(id, name, organizer_id, planner_id)
     `);
 
   if (event_id) {
     query = query.eq('event_id', event_id);
+  } else if (user.role !== 'admin') {
+    // If not admin and no specific event_id, filter by organizer's events
+    query = query.or(`organizer_id.eq.${user.id},planner_id.eq.${user.id}`, { foreignTable: 'events' });
   }
 
   const { data: orders, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
-    return c.json({ error: 'Failed to fetch orders' }, 500);
+    // Fallback if join on events fails
+    let fallbackQuery = supabase.from('orders').select('*');
+    if (event_id) fallbackQuery = fallbackQuery.eq('event_id', event_id);
+    const { data: fallbackOrders } = await fallbackQuery.order('created_at', { ascending: false });
+    return c.json({ orders: fallbackOrders || [] });
   }
 
-  return c.json({ orders });
+  return c.json({ orders: orders || [] });
 });

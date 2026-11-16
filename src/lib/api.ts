@@ -74,7 +74,10 @@ export const api = {
         if (data.token) {
           localStorage.setItem('token', data.token);
           localStorage.setItem('tiketi_role', role);
-          if (data.user) localStorage.setItem('tiketi_user', JSON.stringify(data.user));
+          if (data.user) {
+            localStorage.setItem('tiketi_user', JSON.stringify(data.user));
+            localStorage.setItem('tiketi_auth_user', JSON.stringify(data.user));
+          }
         }
         return data;
       } catch (err: any) {
@@ -155,6 +158,7 @@ export const api = {
       localStorage.removeItem('token');
       localStorage.removeItem('tiketi_role');
       localStorage.removeItem('tiketi_user');
+      localStorage.removeItem('tiketi_auth_user');
     },
 
     async getInviteInfo(token: string): Promise<{ role: 'model' | 'gate'; name: string; email: string } | null> {
@@ -263,7 +267,22 @@ export const api = {
       return undefined;
     },
 
-    async create(eventData: Partial<Event> & { event_date?: string; sales_end_date?: string; banner_url?: string; poster_url?: string; party_type?: string; partyType?: string; university?: string; state?: string }): Promise<Event> {
+    async upload(file: File): Promise<{ url: string }> {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/events/upload`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to upload image');
+      }
+      return await res.json();
+    },
+
+    async create(eventData: Partial<Event> & { event_date?: string; sales_end_date?: string; banner_url?: string | null; poster_url?: string | null; party_type?: string; partyType?: string; university?: string | null; state?: string | null }): Promise<Event> {
       const payload: any = {
         name: eventData.name,
         description: eventData.description,
@@ -855,6 +874,58 @@ export const api = {
 
   // Admin
   admin: {
+    async getOverview() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/overview`, { headers: getAuthHeader() });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.error('api.admin.getOverview failed:', e);
+      }
+      return null;
+    },
+
+    async getEvents(): Promise<Event[]> {
+      try {
+        const res = await fetch(`${API_BASE}/admin/events`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.events)) {
+            return data.events.map((e: any) => ({
+              id: e.id,
+              ownerId: e.organizer_id || e.planner_id || e.owner_id || '',
+              name: e.name,
+              description: e.description || '',
+              venue: e.venue,
+              eventDate: e.event_date || e.eventDate || '',
+              timezone: e.timezone || 'Africa/Lagos',
+              salesEndDate: e.sales_end_date || e.salesEndDate || '',
+              capacity: e.capacity || 0,
+              bannerUrl: e.banner_url || e.bannerUrl || '',
+              posterUrl: e.poster_url || e.posterUrl || '',
+              category: e.category || 'Other',
+              party_type: e.party_type || 'campus',
+              partyType: e.party_type || 'campus',
+              university: e.university || null,
+              state: e.state || null,
+              status: e.status || 'draft',
+              approval_status: e.approval_status || 'pending',
+              approval_note: e.approval_note || null,
+              approved_at: e.approved_at || null,
+              paystack_subaccount_code: e.paystack_subaccount_code || null,
+              fee_percent_override: e.fee_percent_override != null ? Number(e.fee_percent_override) : null,
+              organizer: e.organizer || null,
+              createdAt: e.created_at || '',
+            }));
+          }
+        }
+      } catch (e) {
+        console.error('api.admin.getEvents failed:', e);
+      }
+      return [];
+    },
+
     async getPendingEvents() {
       try {
         const res = await fetch(`${API_BASE}/admin/events/pending`, { headers: getAuthHeader() });
@@ -864,6 +935,77 @@ export const api = {
         }
       } catch (e) {
         console.error('api.admin.getPendingEvents failed:', e);
+      }
+      return [];
+    },
+
+    async getOwners(): Promise<any[]> {
+      try {
+        const res = await fetch(`${API_BASE}/admin/owners`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          return data.owners || [];
+        }
+      } catch (e) {
+        console.error('api.admin.getOwners failed:', e);
+      }
+      return [];
+    },
+
+    async getOrders(): Promise<Order[]> {
+      try {
+        const res = await fetch(`${API_BASE}/admin/orders`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.orders)) {
+            return data.orders.map((o: any) => ({
+              id: o.id,
+              reference: o.reference,
+              buyerName: o.buyer_name || o.buyerName || 'Anonymous',
+              buyerEmail: o.buyer_email || o.buyerEmail || '',
+              buyerPhone: o.buyer_phone || o.buyerPhone || '',
+              eventId: o.event_id || o.eventId,
+              eventName: o.event?.name || '',
+              modelId: o.model_id || o.modelId || '',
+              status: o.status,
+              total: o.total,
+              ticketPrice: o.ticket_price || o.total,
+              amountCharged: o.amount_charged,
+              buyerFee: o.buyer_fee,
+              platformFee: o.platform_fee,
+              organizerShare: o.organizer_share,
+              createdAt: o.created_at || o.createdAt,
+            }));
+          }
+        }
+      } catch (e) {
+        console.error('api.admin.getOrders failed:', e);
+      }
+      return [];
+    },
+
+    async getAuditLogs(limit = 100, offset = 0): Promise<any[]> {
+      try {
+        const res = await fetch(`${API_BASE}/admin/audit?limit=${limit}&offset=${offset}`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          return data.logs || [];
+        }
+      } catch (e) {
+        console.error('api.admin.getAuditLogs failed:', e);
+      }
+      return [];
+    },
+
+    async getPayouts(): Promise<any[]> {
+      try {
+        const res = await fetch(`${API_BASE}/admin/payouts`, { headers: getAuthHeader() });
+        if (res.ok) {
+          const data = await res.json();
+          return data.payouts || [];
+        }
+      } catch (e) {
+        console.error('api.admin.getPayouts failed:', e);
       }
       return [];
     },
@@ -889,6 +1031,19 @@ export const api = {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to reject event');
+      }
+      return await res.json();
+    },
+
+    async takedownEvent(eventId: string, reason: string) {
+      const res = await fetch(`${API_BASE}/admin/events/${encodeURIComponent(eventId)}/takedown`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to take down event');
       }
       return await res.json();
     },
@@ -919,7 +1074,7 @@ export const api = {
       return { fee_percent: 5.0, fee_bearer: 'organizer' };
     },
 
-    async updateSettings(settings: { fee_percent?: number; fee_bearer?: string; announcement_banner?: string }) {
+    async updateSettings(settings: { fee_percent?: number; platform_fee_percent?: number; fee_bearer?: string; announcement_banner?: string }) {
       const res = await fetch(`${API_BASE}/admin/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
@@ -928,6 +1083,19 @@ export const api = {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to update settings');
+      }
+      return await res.json();
+    },
+
+    async updateOrganizerStatus(organizerId: string, status: 'active' | 'suspended' | 'deactivated') {
+      const res = await fetch(`${API_BASE}/admin/owners/${encodeURIComponent(organizerId)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update organizer status');
       }
       return await res.json();
     },

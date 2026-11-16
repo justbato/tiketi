@@ -76,6 +76,9 @@ export interface Order {
   modelId: string;
   status: 'pending' | 'paid' | 'expired' | 'refunded';
   total: number;
+  amountCharged?: number;
+  buyerFee?: number;
+  flatFee?: number;
   ticketPrice: number;
   serviceFee: number;
   paymentReference: string;
