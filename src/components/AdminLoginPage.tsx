@@ -6,8 +6,11 @@ import { api } from '../lib/api';
 
 export function AdminLoginPage() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState<'login' | 'setup'>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [setupKey, setSetupKey] = useState('');
   const [twoFaCode, setTwoFaCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -27,11 +30,35 @@ export function AdminLoginPage() {
       if (res.user) {
         localStorage.setItem('tiketi_auth_user', JSON.stringify(res.user));
         localStorage.setItem('tiketi_user', JSON.stringify(res.user));
+        localStorage.setItem('tiketi_role', 'admin');
       }
       showToast('Identity verified. Loading Administrator Terminal...', 'success');
       navigate('/admin');
     } catch (err: any) {
       showToast(err.message || 'Access Denied: Invalid administrative credentials', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSetupSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      showToast('Name, admin email, and master password are required', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.auth.setupAdmin({
+        name: name.trim(),
+        email: email.trim(),
+        password: password.trim(),
+        setup_key: setupKey.trim() || undefined
+      });
+      showToast('Root administrator terminal initialized! Welcome.', 'success');
+      navigate('/admin');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to initialize administrator account', 'error');
     } finally {
       setLoading(false);
     }
@@ -82,8 +109,97 @@ export function AdminLoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-          {step === 'credentials' ? (
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
+          <div className="flex border-b border-slate-800 pb-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('login')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                mode === 'login'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('setup')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                mode === 'setup'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Initialize Admin
+            </button>
+          </div>
+
+          {mode === 'setup' ? (
+            <form onSubmit={handleSetupSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Administrator Full Name
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Master Admin"
+                  required
+                  className="w-full bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Administrator Email
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@example.com"
+                  required
+                  className="w-full bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Master Security Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    required
+                    className="w-full bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <Button
+                  type="submit"
+                  loading={loading}
+                  className="w-full py-3 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-bold rounded-xl shadow-lg shadow-amber-500/20 text-sm"
+                >
+                  <KeyRound size={16} className="inline mr-2" />
+                  Initialize Root Administrator
+                </Button>
+              </div>
+            </form>
+          ) : step === 'credentials' ? (
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">

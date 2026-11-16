@@ -10,6 +10,20 @@ describe('Admin Routes & Permissions', () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
 
+    const defaultMock: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+    };
+    vi.spyOn(supabase, 'from').mockReturnValue(defaultMock);
+
     adminToken = await signToken({
       id: '00000000-0000-0000-0000-000000000001',
       email: 'admin@tiketi.com',
@@ -272,5 +286,56 @@ describe('Admin Routes & Permissions', () => {
     });
 
     expect(res.status).toBe(400);
+  });
+
+  it('should allow user with organizer token if their email exists in admins table', async () => {
+    // When organizerToken email is checked against admins table
+    const mockQuery: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: 'admin-1', role: 'admin', status: 'active' },
+        error: null,
+      }),
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    vi.spyOn(supabase, 'from').mockReturnValue(mockQuery);
+
+    const res = await app.request('/api/admin/overview', {
+      headers: { Authorization: `Bearer ${organizerToken}` },
+    });
+    // Should NOT be 403 Forbidden because email is in admins table
+    expect(res.status).toBe(200);
+  });
+
+  it('should successfully initialize an admin on POST /api/auth/setup-admin', async () => {
+    const mockQuery: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      insert: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: { id: '00000000-0000-0000-0000-000000000002', email: 'newadmin@tiketi.com' },
+        error: null,
+      }),
+    };
+    vi.spyOn(supabase, 'from').mockReturnValue(mockQuery);
+
+    const res = await app.request('/api/auth/setup-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'New Admin',
+        email: 'newadmin@tiketi.com',
+        password: 'SecurePassword123!',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.success).toBe(true);
+    expect(body).toHaveProperty('token');
+    expect(body.user.role).toBe('admin');
   });
 });

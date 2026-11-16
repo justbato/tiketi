@@ -357,13 +357,58 @@ authRoutes.post('/login', loginRateLimit, async (c) => {
   }
 
   if (body.role === 'admin') {
-    const { data: admin, error } = await supabase
+    let { data: admin, error } = await supabase
       .from('admins')
       .select('*')
       .eq('email', body.email.toLowerCase())
       .single();
 
-    if (error || !admin) return c.json({ error: 'Invalid credentials' }, 401);
+    // If not found in admins table, check if organizer exists with matching credentials
+    if (error || !admin) {
+      const { data: orgData } = await getOrganizersByEmail(body.email.toLowerCase());
+      const organizer = orgData?.[0];
+
+      if (organizer) {
+        const validOrg = await bcrypt.compare(body.password, organizer.password_hash);
+        if (validOrg) {
+          const envAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+          const isConfiguredAdmin = envAdmin && body.email.toLowerCase() === envAdmin;
+
+          const { count: adminCount } = await supabase
+            .from('admins')
+            .select('*', { count: 'exact', head: true });
+
+          if (isConfiguredAdmin || !adminCount || adminCount === 0) {
+            const { data: newAdmin, error: insErr } = await supabase
+              .from('admins')
+              .insert({
+                email: organizer.email.toLowerCase(),
+                password_hash: organizer.password_hash,
+                name: organizer.name || 'Platform Administrator',
+                role: 'admin',
+                status: 'active'
+              })
+              .select('*')
+              .single();
+
+            if (!insErr && newAdmin) {
+              admin = newAdmin;
+            } else {
+              admin = {
+                id: organizer.id,
+                email: organizer.email,
+                name: organizer.name,
+                password_hash: organizer.password_hash,
+                role: 'admin',
+                status: 'active'
+              };
+            }
+          }
+        }
+      }
+    }
+
+    if (!admin) return c.json({ error: 'Invalid credentials' }, 401);
 
     const valid = await bcrypt.compare(body.password, admin.password_hash);
     if (!valid) return c.json({ error: 'Invalid credentials' }, 401);
@@ -403,13 +448,58 @@ authRoutes.post('/admin/login', loginRateLimit, async (c) => {
 
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown';
 
-  const { data: admin, error } = await supabase
+  let { data: admin, error } = await supabase
     .from('admins')
     .select('*')
     .eq('email', body.email.trim().toLowerCase())
     .single();
 
+  // If not found in admins, check organizer accounts
   if (error || !admin) {
+    const { data: orgData } = await getOrganizersByEmail(body.email.trim().toLowerCase());
+    const organizer = orgData?.[0];
+
+    if (organizer) {
+      const validOrg = await bcrypt.compare(body.password, organizer.password_hash);
+      if (validOrg) {
+        const envAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+        const isConfiguredAdmin = envAdmin && body.email.trim().toLowerCase() === envAdmin;
+
+        const { count: adminCount } = await supabase
+          .from('admins')
+          .select('*', { count: 'exact', head: true });
+
+        if (isConfiguredAdmin || !adminCount || adminCount === 0) {
+          const { data: newAdmin, error: insErr } = await supabase
+            .from('admins')
+            .insert({
+              email: organizer.email.toLowerCase(),
+              password_hash: organizer.password_hash,
+              name: organizer.name || 'Platform Administrator',
+              role: 'admin',
+              status: 'active'
+            })
+            .select('*')
+            .single();
+
+          if (!insErr && newAdmin) {
+            admin = newAdmin;
+          } else {
+            admin = {
+              id: organizer.id,
+              email: organizer.email,
+              name: organizer.name,
+              password_hash: organizer.password_hash,
+              role: 'admin',
+              status: 'active'
+            };
+          }
+        }
+      }
+    }
+  }
+
+  if (!admin) {
     try {
       await supabase.from('audit_logs').insert({
         actor_type: 'system',
@@ -472,6 +562,90 @@ authRoutes.post('/admin/login', loginRateLimit, async (c) => {
       name: admin.name, 
       role: 'admin' 
     } 
+  });
+});
+
+// ── Setup / Initialize Root Administrator ──
+const setupAdminSchema = z.object({
+  name: z.string().min(2).max(100),
+  email: z.string().email(),
+  password: z.string().min(6).max(128),
+  setup_key: z.string().optional()
+});
+
+authRoutes.post('/setup-admin', async (c) => {
+  let body: z.infer<typeof setupAdminSchema>;
+  try {
+    body = setupAdminSchema.parse(await c.req.json());
+  } catch (err: any) {
+    return c.json({ error: 'Invalid input', details: err?.errors }, 400);
+  }
+
+  const { count: adminCount } = await supabase
+    .from('admins')
+    .select('*', { count: 'exact', head: true });
+
+  const requiredSetupKey = process.env.ADMIN_SETUP_KEY;
+  if ((adminCount || 0) > 0 && requiredSetupKey && body.setup_key !== requiredSetupKey) {
+    return c.json({ error: 'Administrative setup key required when administrators already exist' }, 403);
+  }
+
+  const passwordHash = await bcrypt.hash(body.password, 10);
+
+  const { data: existing } = await supabase
+    .from('admins')
+    .select('id')
+    .eq('email', body.email.toLowerCase())
+    .maybeSingle();
+
+  let adminId: string;
+  if (existing) {
+    await supabase
+      .from('admins')
+      .update({
+        name: body.name,
+        password_hash: passwordHash,
+        status: 'active',
+        role: 'admin',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existing.id);
+    adminId = existing.id;
+  } else {
+    const { data: newAdmin, error: insErr } = await supabase
+      .from('admins')
+      .insert({
+        name: body.name,
+        email: body.email.toLowerCase(),
+        password_hash: passwordHash,
+        role: 'admin',
+        status: 'active'
+      })
+      .select('id')
+      .single();
+
+    if (insErr || !newAdmin) {
+      return c.json({ error: `Failed to create admin: ${insErr?.message}` }, 500);
+    }
+    adminId = newAdmin.id;
+  }
+
+  const token = await signToken({
+    id: adminId,
+    email: body.email.toLowerCase(),
+    role: 'admin'
+  });
+
+  return c.json({
+    success: true,
+    message: 'Administrator terminal initialized successfully',
+    token,
+    user: {
+      id: adminId,
+      email: body.email.toLowerCase(),
+      name: body.name,
+      role: 'admin'
+    }
   });
 });
 

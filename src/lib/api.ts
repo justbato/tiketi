@@ -86,6 +86,33 @@ export const api = {
       }
     },
 
+    async setupAdmin(data: { name: string; email: string; password: string; setup_key?: string }) {
+      try {
+        const res = await fetch(`${API_BASE}/auth/setup-admin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to initialize administrator');
+        }
+        const result = await res.json();
+        if (result.token) {
+          localStorage.setItem('token', result.token);
+          localStorage.setItem('tiketi_role', 'admin');
+          if (result.user) {
+            localStorage.setItem('tiketi_user', JSON.stringify(result.user));
+            localStorage.setItem('tiketi_auth_user', JSON.stringify(result.user));
+          }
+        }
+        return result;
+      } catch (err: any) {
+        if (err.message && !err.message.includes('fetch')) throw err;
+        throw new Error('Cannot reach the server. Please check your connection.');
+      }
+    },
+
     async registerOrganizer(organizerData: {
       name: string;
       email: string;

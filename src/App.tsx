@@ -715,7 +715,7 @@ function OwnerDashboard() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <StatCard label="Tickets Sold" value={totalSold} icon={TIcon} trend={{ value: 12, positive: true }} delay={0} />
+        <StatCard label="Tickets Sold" value={totalSold} icon={TIcon} delay={0} />
         <StatCard label="Revenue" value={formatNaira(totalRevenue)} icon={DollarSign} delay={50} />
         <StatCard label="Capacity" value={totalCapacity > 0 ? `${Math.round((totalSold / totalCapacity) * 100)}%` : '0%'} icon={BarChart3} delay={100} />
         <StatCard label="Models" value={models.filter(m => m.status === 'active').length} icon={Users} delay={150} />
@@ -2276,30 +2276,73 @@ function OwnerStaff() {
 }
 
 function OwnerEarnings() {
-  const [payouts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentEvent, setCurrentEvent] = useState<Event | null>(null);
+  const [tickets, setTickets] = useState<TicketType[]>([]);
+
+  useEffect(() => {
+    setLoading(true);
+    api.events.list(true).then(async (eventsList) => {
+      const currentUser = api.auth.getCurrentUser();
+      const matched = (currentUser?.event_id ? eventsList.find(e => e.id === currentUser.event_id) : null) || eventsList[0] || null;
+      setCurrentEvent(matched);
+      if (matched) {
+        try {
+          const tList = await api.ticketTypes.list(matched.id);
+          setTickets(tList.filter(t => !t.archived));
+        } catch {}
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const totalSold = tickets.reduce((s, t) => s + (t.sold || 0), 0);
+  const totalRevenue = tickets.reduce((s, t) => s + ((t.sold || 0) * (t.price || 0)), 0);
+  const feePercent = (currentEvent as any)?.fee_percent_override != null ? Number((currentEvent as any).fee_percent_override) : 5.0;
+  const platformFee = Math.round((totalRevenue * feePercent) / 100);
+  const netEarnings = Math.max(0, totalRevenue - platformFee);
+
   return (
     <div>
-      <h1 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Earnings</h1>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <StatCard label="Total" value={formatNaira(0)} icon={DollarSign} delay={0} />
-        <StatCard label="Pending" value={formatNaira(0)} icon={Clock} delay={50} />
-        <StatCard label="Settled" value={formatNaira(0)} icon={Check} delay={100} />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold">Organizer Settlement &amp; Earnings</h1>
+          <p className="text-xs text-text-secondary mt-0.5">{currentEvent?.name || 'Active Event'}</p>
+        </div>
+        <Badge variant="success">Paystack Direct Split</Badge>
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
+        <StatCard label="Gross Ticket Sales" value={formatNaira(totalRevenue)} icon={DollarSign} delay={0} />
+        <StatCard label="Platform Service Fee" value={formatNaira(platformFee)} icon={Shield} delay={50} />
+        <StatCard label="Net Organizer Earnings" value={formatNaira(netEarnings)} icon={CheckCircle2} delay={100} />
+      </div>
+
       <BentoCard>
-        <h3 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Unlock', cursive" }}>History</h3>
-        {payouts.length === 0 ? (
-          <div className="py-8 text-center text-xs text-text-muted">No payout records yet.</div>
+        <h3 className="text-sm font-semibold mb-3">Earnings by Ticket Tier</h3>
+        {loading ? (
+          <div className="py-8 text-center text-xs text-text-muted">Loading earnings...</div>
+        ) : tickets.length === 0 ? (
+          <div className="py-8 text-center text-xs text-text-muted">No ticket tiers created yet.</div>
         ) : (
           <div className="space-y-2">
-            {payouts.map(p => (
-              <div key={p.id} className="data-row flex items-center justify-between p-3.5 rounded-xl">
-                <div>
-                  <p className="text-sm font-bold">{formatNaira(p.ownerAmount)}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{formatDate(p.createdAt)}</p>
+            {tickets.map(t => {
+              const tierRevenue = (t.sold || 0) * (t.price || 0);
+              const tierNet = tierRevenue - Math.round((tierRevenue * feePercent) / 100);
+              return (
+                <div key={t.id} className="data-row flex items-center justify-between p-3.5 rounded-xl">
+                  <div>
+                    <p className="text-sm font-bold text-text-primary">{t.name}</p>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      {t.sold || 0} sold @ {formatNaira(t.price)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-emerald-400">{formatNaira(tierNet)}</p>
+                    <span className="text-[10px] text-text-muted">Net ({formatNaira(tierRevenue)} gross)</span>
+                  </div>
                 </div>
-                <Badge variant={p.status === 'settled' ? 'success' : 'warning'}>{p.status}</Badge>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </BentoCard>
@@ -4390,25 +4433,47 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    const role = localStorage.getItem('tiketi_role');
+    const stored = localStorage.getItem('tiketi_auth_user') || localStorage.getItem('tiketi_user');
+
+    if (!token || !stored) {
+      setAuthorized(false);
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('token');
-      const role = localStorage.getItem('tiketi_role');
-      const stored = localStorage.getItem('tiketi_auth_user') || localStorage.getItem('tiketi_user');
-      if (token && stored) {
-        const u = JSON.parse(stored);
-        if (u.role === 'admin' || role === 'admin') {
-          setAuthorized(true);
-          return;
-        }
+      const u = JSON.parse(stored);
+      if (u.role !== 'admin' && role !== 'admin') {
+        setAuthorized(false);
+        return;
       }
     } catch {
-      // ignore
+      setAuthorized(false);
+      return;
     }
-    setAuthorized(false);
+
+    // Verify clearance directly with the server overview endpoint
+    api.admin.getOverview()
+      .then(res => {
+        if (res && typeof res === 'object' && ('total_revenue' in res || 'active_events' in res)) {
+          setAuthorized(true);
+        } else {
+          setAuthorized(false);
+        }
+      })
+      .catch(() => {
+        setAuthorized(false);
+      });
   }, []);
 
   if (authorized === null) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white text-sm">Verifying Administrative Clearance...</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white text-sm space-y-3">
+        <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
+        <p className="text-slate-400 font-mono text-xs">Verifying Administrative Clearance...</p>
+      </div>
+    );
   }
 
   if (!authorized) {

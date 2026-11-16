@@ -1,6 +1,6 @@
 import { Context, Next, MiddlewareHandler } from 'hono';
 import { signToken, verifyToken, extractBearerToken } from '../utils/jwt.js';
-import type { AppEnv, JwtPayload } from '../index.js';
+import { supabase, type AppEnv, type JwtPayload } from '../index.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // =============================================
@@ -69,7 +69,32 @@ export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
   
   if (user.role !== 'admin') {
-    return c.json({ error: 'Admin access required' }, 403);
+    if (user.email) {
+      const envAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+      if (envAdmin && user.email.toLowerCase() === envAdmin) {
+        user.role = 'admin';
+        c.set('user', user);
+        return await next();
+      }
+
+      try {
+        const { data: adminRecord } = await supabase
+          .from('admins')
+          .select('id, role, status')
+          .eq('email', user.email.toLowerCase())
+          .maybeSingle();
+
+        if (adminRecord && adminRecord.status !== 'suspended') {
+          user.role = (adminRecord.role as any) || 'admin';
+          c.set('user', user);
+          return await next();
+        }
+      } catch (err) {
+        console.warn('[requireAdmin] Error checking admins table:', err);
+      }
+    }
+
+    return c.json({ error: 'Admin access required. Please log in as an administrator.' }, 403);
   }
   
   return await next();
