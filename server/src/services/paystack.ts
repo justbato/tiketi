@@ -166,9 +166,9 @@ export interface InitializeParams {
   email: string;
   amount_kobo: number;         // total in kobo
   reference: string;
-  subaccount_code: string;
-  transaction_charge_kobo: number; // platform share in kobo
-  fee_bearer: 'account' | 'subaccount';
+  subaccount_code?: string;
+  transaction_charge_kobo?: number; // platform share in kobo
+  fee_bearer?: 'account' | 'subaccount';
   callback_url?: string;
   metadata?: Record<string, unknown>;
 }
@@ -186,11 +186,20 @@ export async function initializeTransaction(
     email: params.email,
     amount: params.amount_kobo,
     reference: params.reference,
-    subaccount: params.subaccount_code,
-    transaction_charge: params.transaction_charge_kobo,
-    bearer: params.fee_bearer,
     channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
   };
+
+  const subaccount = params.subaccount_code?.trim();
+  if (subaccount) {
+    body.subaccount = subaccount;
+    if (params.transaction_charge_kobo !== undefined && params.transaction_charge_kobo > 0) {
+      body.transaction_charge = params.transaction_charge_kobo;
+    }
+    if (params.fee_bearer) {
+      body.bearer = params.fee_bearer;
+    }
+  }
+
   if (params.callback_url) body.callback_url = params.callback_url;
   if (params.metadata) body.metadata = params.metadata;
 

@@ -156,7 +156,11 @@ orderRoutes.post('/', async (c) => {
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 mins window
 
   // Create order
-  const { data: order, error: orderErr } = await supabase
+  let order: any = null;
+  let orderErr: any = null;
+
+  // Try creating with all current schema columns
+  const fullOrderInsert = await supabase
     .from('orders')
     .insert({
       reference: orderRef,
@@ -181,9 +185,35 @@ orderRoutes.post('/', async (c) => {
     .select()
     .single();
 
+  if (fullOrderInsert.error) {
+    console.warn('[Orders] Full insert failed, attempting minimal legacy insert fallback:', fullOrderInsert.error.message);
+    const minimalOrderInsert = await supabase
+      .from('orders')
+      .insert({
+        reference: orderRef,
+        event_id: body.event_id,
+        model_id: body.model_id || null,
+        buyer_name: body.buyer_name,
+        buyer_email: body.buyer_email,
+        buyer_phone: body.buyer_phone,
+        subtotal,
+        fees: split.platform_fee_naira,
+        total: subtotal,
+        status: 'pending',
+        expires_at: expiresAt.toISOString()
+      })
+      .select()
+      .single();
+
+    order = minimalOrderInsert.data;
+    orderErr = minimalOrderInsert.error;
+  } else {
+    order = fullOrderInsert.data;
+  }
+
   if (orderErr || !order) {
-    console.error('Failed to create order:', orderErr);
-    return c.json({ error: 'Failed to create order' }, 500);
+    console.error('Failed to create order:', orderErr || fullOrderInsert.error);
+    return c.json({ error: orderErr?.message || fullOrderInsert.error?.message || 'Failed to create order' }, 500);
   }
 
   // Create order lines
@@ -201,15 +231,16 @@ orderRoutes.post('/', async (c) => {
 
   // Initialize Paystack payment
   try {
-    const paystackSubaccount = event.paystack_subaccount_code || '';
+    const rawSubaccount = event.paystack_subaccount_code?.trim();
+    const paystackSubaccount = rawSubaccount && rawSubaccount.length > 0 ? rawSubaccount : undefined;
 
     const payment = await initializeTransaction({
       email: body.buyer_email,
       amount_kobo: chargeKobo,
       reference: orderRef,
       subaccount_code: paystackSubaccount,
-      transaction_charge_kobo: split.platform_fee_kobo + flatFeeKobo + buyerFeeKobo,
-      fee_bearer: 'account',
+      transaction_charge_kobo: paystackSubaccount ? (split.platform_fee_kobo + flatFeeKobo + buyerFeeKobo) : undefined,
+      fee_bearer: paystackSubaccount ? 'account' : undefined,
       callback_url: `${(process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim()}/payment/callback`,
       metadata: {
         order_id: order.id,
@@ -221,13 +252,21 @@ orderRoutes.post('/', async (c) => {
       }
     });
 
-    await supabase
-      .from('orders')
-      .update({
-        payment_reference: payment.reference,
-        paystack_reference: payment.reference,
-      })
-      .eq('id', order.id);
+    try {
+      await supabase
+        .from('orders')
+        .update({
+          payment_reference: payment.reference,
+          paystack_reference: payment.reference,
+        })
+        .eq('id', order.id);
+    } catch (refUpdateErr: any) {
+      console.warn('[Orders] Could not update both payment_reference and paystack_reference, trying single reference:', refUpdateErr.message);
+      await supabase
+        .from('orders')
+        .update({ payment_reference: payment.reference })
+        .eq('id', order.id);
+    }
 
     return c.json({
       order: {
@@ -250,13 +289,16 @@ orderRoutes.post('/', async (c) => {
       }
     }, 201);
   } catch (err: any) {
-    console.error('Paystack initialization error:', err.message);
-    await supabase
-      .from('orders')
-      .update({ status: 'payment_failed' })
-      .eq('id', order.id);
+    console.error('Paystack initialization error:', err.message, err.response?.data);
+    try {
+      await supabase
+        .from('orders')
+        .update({ status: 'payment_failed' })
+        .eq('id', order.id);
+    } catch { }
 
-    return c.json({ error: 'Payment initialization failed. Please try again.' }, 500);
+    const errorMsg = err.response?.data?.message || err.message || 'Payment initialization failed. Please try again.';
+    return c.json({ error: errorMsg }, 502);
   }
 });
 
