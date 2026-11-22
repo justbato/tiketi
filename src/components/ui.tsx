@@ -185,9 +185,10 @@ interface InputProps {
   className?: string;
   autoFocus?: boolean;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
 }
 
-export function Input({ label, placeholder, value, onChange, type = 'text', error, hint, icon: Icon, className = '', autoFocus, onKeyDown }: InputProps) {
+export function Input({ label, placeholder, value, onChange, type = 'text', error, hint, icon: Icon, className = '', autoFocus, onKeyDown, onBlur }: InputProps) {
   return (
     <div className={className}>
       {label && <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">{label}</label>}
@@ -200,6 +201,7 @@ export function Input({ label, placeholder, value, onChange, type = 'text', erro
           onChange={(e) => onChange?.(e.target.value)}
           autoFocus={autoFocus}
           onKeyDown={onKeyDown}
+          onBlur={onBlur}
           style={Icon ? { paddingLeft: '2.85rem' } : undefined}
           className={`neu-input ${Icon ? 'pl-11' : ''} ${error ? 'ring-2 ring-error' : ''}`}
         />

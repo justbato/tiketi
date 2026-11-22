@@ -1074,10 +1074,62 @@ export function CheckoutPage({
   const [buyerName, setBuyerName] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
+  const [formErrors, setFormErrors] = useState<{
+    buyerName?: string;
+    buyerEmail?: string;
+    buyerPhone?: string;
+    general?: string;
+  }>({});
   const [orderRef, setOrderRef] = useState('');
   const [paymentData, setPaymentData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+
+  // Field validation helper
+  const validateField = (field: 'name' | 'email' | 'phone', val: string): string | undefined => {
+    const trimmed = val.trim();
+    if (field === 'name') {
+      if (!trimmed) return 'Full name is required';
+      if (trimmed.length < 2) return 'Full name must be at least 2 characters';
+      if (!/^[a-zA-Z\s'\-\.]+$/.test(trimmed)) {
+        return 'Name should only contain letters, spaces, hyphens, or apostrophes';
+      }
+    } else if (field === 'email') {
+      if (!trimmed) return 'Email address is required';
+      const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+      if (!emailRegex.test(trimmed)) {
+        return 'Please enter a valid email address (e.g. name@example.com)';
+      }
+    } else if (field === 'phone') {
+      if (!trimmed) return 'Phone number is required';
+      const clean = trimmed.replace(/[\s\-\(\)]/g, '');
+      if (!/^\+?[0-9]{10,15}$/.test(clean)) {
+        return 'Please enter a valid phone number (10–14 digits, e.g. 08012345678)';
+      }
+    }
+    return undefined;
+  };
+
+  const handleNameChange = (val: string) => {
+    setBuyerName(val);
+    if (formErrors.buyerName) {
+      setFormErrors(prev => ({ ...prev, buyerName: undefined, general: undefined }));
+    }
+  };
+
+  const handleEmailChange = (val: string) => {
+    setBuyerEmail(val);
+    if (formErrors.buyerEmail) {
+      setFormErrors(prev => ({ ...prev, buyerEmail: undefined, general: undefined }));
+    }
+  };
+
+  const handlePhoneChange = (val: string) => {
+    setBuyerPhone(val);
+    if (formErrors.buyerPhone) {
+      setFormErrors(prev => ({ ...prev, buyerPhone: undefined, general: undefined }));
+    }
+  };
 
   // Load Paystack script
   useEffect(() => {
@@ -1112,21 +1164,35 @@ export function CheckoutPage({
   };
 
   const handleStartPaystackPayment = async () => {
-    if (!buyerName.trim() || !buyerEmail.trim() || !buyerPhone.trim()) {
-      showToast('Please fill in your name, email and phone', 'error');
+    const nameErr = validateField('name', buyerName);
+    const emailErr = validateField('email', buyerEmail);
+    const phoneErr = validateField('phone', buyerPhone);
+
+    if (nameErr || emailErr || phoneErr) {
+      setFormErrors({
+        buyerName: nameErr,
+        buyerEmail: emailErr,
+        buyerPhone: phoneErr,
+      });
+      const firstError = nameErr || emailErr || phoneErr;
+      showToast(firstError!, 'error');
       return;
     }
+
+    setFormErrors({});
     setLoading(true);
 
     try {
       try { sessionStorage.setItem('tiketi_buyer_email', buyerEmail.trim()); } catch { }
+      const cleanPhone = buyerPhone.trim().replace(/[\s\-\(\)]/g, '');
+
       // 1. Create order on server and initialize Paystack transaction
       const res = await api.orders.create({
         event_id: event.id,
         model_id: isDirect ? null : (model?.id || null),
         buyer_name: buyerName.trim(),
         buyer_email: buyerEmail.trim(),
-        buyer_phone: buyerPhone.trim(),
+        buyer_phone: cleanPhone,
         items: cartItems.map(item => ({
           ticket_type_id: item.id,
           quantity: item.qty
@@ -1141,7 +1207,9 @@ export function CheckoutPage({
       // 2. Open Paystack Inline Popup
       openPaystackModal(res?.payment, ref);
     } catch (err: any) {
-      showToast(err.message || 'Could not initialize payment', 'error');
+      const msg = err.message || 'Could not initialize payment';
+      setFormErrors(prev => ({ ...prev, general: msg }));
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -1150,31 +1218,48 @@ export function CheckoutPage({
   const openPaystackModal = (payData: any, ref: string) => {
     const paystackKey = (import.meta as any).env?.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_placeholder';
 
-    if (typeof (window as any).PaystackPop !== 'undefined' && payData?.access_code) {
-      const handler = (window as any).PaystackPop.setup({
-        key: paystackKey,
-        email: buyerEmail.trim(),
-        amount: total * 100,
-        ref: ref,
-        access_code: payData.access_code,
-        onClose: () => {
-          showToast('Payment window closed. You can click Pay Now to retry.', 'info');
-        },
-        callback: async (response: any) => {
-          setVerifying(true);
-          try {
-            await api.orders.verifyPayment(response.reference || ref);
-            showToast('Payment verified! Loading your tickets...', 'success');
-            navigate('/tickets/' + (response.reference || ref));
-          } catch {
-            pollOrderStatus(response.reference || ref);
+    try {
+      // Calculate guaranteed integer kobo (e.g. ₦1,116.76 -> 111676) to satisfy Paystack inline.js check
+      const rawKobo = payData?.amount_kobo
+        ? Number(payData.amount_kobo)
+        : Number(payData?.amount ?? total) * 100;
+      const koboAmount = Math.round(Number.isFinite(rawKobo) ? rawKobo : total * 100);
+
+      if (typeof (window as any).PaystackPop !== 'undefined' && payData?.access_code) {
+        const handler = (window as any).PaystackPop.setup({
+          key: paystackKey,
+          email: buyerEmail.trim(),
+          amount: Math.trunc(koboAmount),
+          ref: ref,
+          access_code: payData.access_code,
+          onClose: () => {
+            showToast('Payment window closed. You can click Pay Now to retry.', 'info');
+          },
+          callback: async (response: any) => {
+            setVerifying(true);
+            try {
+              await api.orders.verifyPayment(response.reference || ref);
+              showToast('Payment verified! Loading your tickets...', 'success');
+              navigate('/tickets/' + (response.reference || ref));
+            } catch {
+              pollOrderStatus(response.reference || ref);
+            }
           }
-        }
-      });
-      handler.openIframe();
-    } else if (payData?.authorization_url) {
-      // Fallback redirect if inline popup is unavailable
-      window.location.href = payData.authorization_url;
+        });
+        handler.openIframe();
+      } else if (payData?.authorization_url) {
+        // Fallback redirect if inline popup is unavailable
+        window.location.href = payData.authorization_url;
+      } else {
+        throw new Error('Unable to open payment popup. Redirecting to payment...');
+      }
+    } catch (err: any) {
+      console.warn('Paystack inline popup warning, falling back to authorization_url:', err);
+      if (payData?.authorization_url) {
+        window.location.href = payData.authorization_url;
+      } else {
+        showToast(err.message || 'Could not launch payment window', 'error');
+      }
     }
   };
 
@@ -1285,12 +1370,26 @@ export function CheckoutPage({
             </p>
           </div>
 
+          {formErrors.general && (
+            <div className="p-3.5 mb-5 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-500 font-medium flex items-start gap-2.5">
+              <AlertCircle size={16} className="shrink-0 mt-0.5 text-red-500" />
+              <div className="leading-relaxed">
+                <strong>Checkout Error:</strong> {formErrors.general}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4 mb-6">
             <Input
               label="Full Name"
               placeholder="e.g. Oluwaseun Adeleke"
               value={buyerName}
-              onChange={setBuyerName}
+              onChange={handleNameChange}
+              error={formErrors.buyerName}
+              onBlur={() => {
+                const err = validateField('name', buyerName);
+                if (err) setFormErrors(prev => ({ ...prev, buyerName: err }));
+              }}
             />
 
             <Input
@@ -1298,15 +1397,27 @@ export function CheckoutPage({
               type="email"
               placeholder="e.g. seun@example.com"
               value={buyerEmail}
-              onChange={setBuyerEmail}
+              onChange={handleEmailChange}
+              error={formErrors.buyerEmail}
               hint="For receipt and lookup. (Tickets will open on-screen immediately for instant download; no email sent)."
+              onBlur={() => {
+                const err = validateField('email', buyerEmail);
+                if (err) setFormErrors(prev => ({ ...prev, buyerEmail: err }));
+              }}
             />
 
             <Input
               label="Phone Number"
+              type="tel"
               placeholder="e.g. 08012345678"
               value={buyerPhone}
-              onChange={setBuyerPhone}
+              onChange={handlePhoneChange}
+              error={formErrors.buyerPhone}
+              hint="Nigerian phone number (10 to 14 digits)"
+              onBlur={() => {
+                const err = validateField('phone', buyerPhone);
+                if (err) setFormErrors(prev => ({ ...prev, buyerPhone: err }));
+              }}
             />
           </div>
 

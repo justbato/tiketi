@@ -39,9 +39,15 @@ orderRoutes.post('/', async (c) => {
   let body: z.infer<typeof createOrderSchema>;
 
   try {
-    body = createOrderSchema.parse(await c.req.json());
-  } catch {
-    return c.json({ error: 'Invalid request body' }, 400);
+    const raw = await c.req.json();
+    body = createOrderSchema.parse(raw);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      const issue = err.issues[0];
+      const field = issue.path.join('.') || 'input';
+      return c.json({ error: `Invalid ${field}: ${issue.message}` }, 400);
+    }
+    return c.json({ error: 'Invalid request payload format' }, 400);
   }
 
   // Validate event exists, is active, and is approved
@@ -286,6 +292,7 @@ orderRoutes.post('/', async (c) => {
         access_code: payment.access_code,
         reference: payment.reference,
         amount: chargeKobo / 100,
+        amount_kobo: Math.round(chargeKobo),
       }
     }, 201);
   } catch (err: any) {
